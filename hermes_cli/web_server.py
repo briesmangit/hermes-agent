@@ -8759,6 +8759,61 @@ async def remove_credential_pool_entry(provider: str, index: int):
 
 
 # ---------------------------------------------------------------------------
+# Credential pool UI endpoint — collapsed aggregate view for the dashboard.
+#
+# Returns provider-level summaries: active/exhausted/revoked counts and
+# cumulative request totals for the credential pool overview table.
+# ---------------------------------------------------------------------------
+
+
+@app.get("/api/v1/credentials/pool/ui")
+async def get_credential_pool_ui() -> Dict[str, Any]:
+    """Returns collapsed view: active/exhausted/revoked counts + request totals per provider."""
+    from agent.credential_pool import (
+        load_pool,
+        STATUS_OK,
+        STATUS_EXHAUSTED,
+        STATUS_DEAD,
+    )
+    from hermes_cli.auth import read_credential_pool
+
+    providers = []
+    raw_pool = read_credential_pool()
+    for provider_id in sorted(raw_pool.keys()):
+        try:
+            pool = load_pool(provider_id)
+        except Exception:
+            _log.exception("load_pool(%s) failed for UI endpoint", provider_id)
+            continue
+        entries = pool.entries()
+        if not entries:
+            continue
+
+        counts: Dict[str, int] = {"active": 0, "exhausted": 0, "revoked": 0}
+        for entry in entries:
+            status = getattr(entry, "last_status", None)
+            if status == STATUS_OK:
+                counts["active"] += 1
+            elif status == STATUS_EXHAUSTED:
+                counts["exhausted"] += 1
+            elif status == STATUS_DEAD:
+                counts["revoked"] += 1
+            else:
+                # No status = assume active
+                counts["active"] += 1
+
+        total_requests = sum(getattr(e, "request_count", 0) for e in entries)
+
+        providers.append({
+            "provider": provider_id,
+            "counts": counts,
+            "total_requests": total_requests,
+            "strategy": pool._strategy,
+        })
+    return {"providers": providers}
+
+
+# ---------------------------------------------------------------------------
 # Memory provider endpoints — status / list providers / select / disable / reset.
 #
 # Selecting a provider only writes config.memory.provider (full interactive

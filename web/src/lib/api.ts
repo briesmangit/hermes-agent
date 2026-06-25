@@ -1037,6 +1037,10 @@ export const api = {
       { method: "DELETE" },
     ),
 
+  // ── Admin: Credential pool UI (collapsed view) ────────────────────────
+  getCredentialPoolUi: () =>
+    fetchJSON<CredentialPoolUiResponse>("/api/v1/credentials/pool/ui"),
+
   // ── Admin: Memory provider ──────────────────────────────────────────
   getMemory: () => fetchJSON<MemoryStatus>("/api/memory"),
   setMemoryProvider: (provider: string) =>
@@ -1473,6 +1477,21 @@ export interface CredentialPoolEntry {
 export interface CredentialPoolProvider {
   provider: string;
   entries: CredentialPoolEntry[];
+}
+
+export interface CredentialPoolProviderUi {
+  provider: string;
+  counts: {
+    active: number;
+    exhausted: number;
+    revoked: number;
+  };
+  total_requests: number;
+  strategy: string;
+}
+
+export interface CredentialPoolUiResponse {
+  providers: CredentialPoolProviderUi[];
 }
 
 export interface MemoryProviderInfo {
