@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 import random
@@ -9,9 +10,11 @@ import threading
 import time
 import uuid
 import re
+from collections import deque
 from dataclasses import dataclass, fields, replace
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional, Set, Tuple
+from pathlib import Path
+from typing import Any, Deque, Dict, List, Optional, Set, Tuple
 
 from hermes_constants import OPENROUTER_BASE_URL
 from hermes_cli.config import load_env
@@ -113,6 +116,11 @@ EXHAUSTED_TTL_401_SECONDS = 5 * 60           # 5 minutes
 EXHAUSTED_TTL_429_SECONDS = 60 * 60          # 1 hour
 EXHAUSTED_TTL_DEFAULT_SECONDS = 60 * 60      # 1 hour
 
+# Rolling window for RPM/TPM usage tracking (per credential).
+# Used both for live dashboard display and proactive rate-limit enforcement
+# when credential_pool_rpm_per_key / credential_pool_tpm_per_key are configured.
+USAGE_WINDOW_SECONDS = 60.0
+
 # Pool key prefix for custom OpenAI-compatible endpoints.
 # Custom endpoints all share provider='custom' but are keyed by their
 # custom_providers name: 'custom:<normalized_name>'.
@@ -151,11 +159,27 @@ class PooledCredential:
     agent_key: Optional[str] = None
     agent_key_expires_at: Optional[str] = None
     request_count: int = 0
+    # Live-usage tracking (rolling USAGE_WINDOW_SECONDS). Updated by
+    # CredentialPool.record_request; surfaced via to_dict() for the dashboard.
+    rpm_used_in_window: Optional[int] = None
+    tpm_used_in_window: Optional[int] = None
+    daily_request_count: Optional[int] = None
+    daily_request_count_date: Optional[str] = None  # YYYY-MM-DD UTC, for reset
+    rpm_limit: Optional[int] = None
+    tpm_limit: Optional[int] = None
     extra: Dict[str, Any] = None  # type: ignore[assignment]
 
     def __post_init__(self):
         if self.extra is None:
             self.extra = {}
+        # Populate per-provider rate limits from profile config (cheap, cached).
+        # Only set if not already provided (so from_dict rehydration is honored).
+        if self.rpm_limit is None or self.tpm_limit is None:
+            rpm, tpm = _lookup_provider_limits(self.provider)
+            if self.rpm_limit is None:
+                self.rpm_limit = rpm
+            if self.tpm_limit is None:
+                self.tpm_limit = tpm
 
     def __getattr__(self, name: str):
         if name in _EXTRA_KEYS:
@@ -444,6 +468,72 @@ def get_pool_strategy(provider: str) -> str:
     return STRATEGY_FILL_FIRST
 
 
+def _resolve_active_profile_auth_path() -> Optional[Path]:
+    """Return the per-profile auth.json path for the active Hermes profile, or None.
+
+    Resolution order (matches singularity's pool_state_reader._profiles_dir):
+      1. HERMES_HOME env var, if set, used directly (already points to profile).
+      2. HERMES_PROFILES_DIR + HERMES_PROFILE, if both set.
+      3. ~/.hermes + HERMES_PROFILE, if HERMES_PROFILE is set.
+
+    Returns None if no profile context can be determined, in which case the
+    caller should fall back to the global write path.
+    """
+    home = os.environ.get("HERMES_HOME", "").strip()
+    if home:
+        candidate = Path(home) / "auth.json"
+        if candidate.exists():
+            return candidate
+        # If HERMES_HOME points to a profile dir but auth.json doesn't exist
+        # yet, still return the path so the caller can create it.
+        if (Path(home) / ".hermes_profile_marker").exists() or "/profiles/" in home:
+            return candidate
+
+    profile = os.environ.get("HERMES_PROFILE", "").strip()
+    if profile:
+        profiles_root = os.environ.get("HERMES_PROFILES_DIR", "").strip()
+        if profiles_root:
+            return Path(profiles_root) / profile / "auth.json"
+        return Path.home() / ".hermes" / "profiles" / profile / "auth.json"
+
+    return None
+
+
+def _lookup_provider_limits(provider: str) -> Tuple[Optional[int], Optional[int]]:
+    """Return (rpm_limit, tpm_limit) for a provider from profile config.
+
+    Reads credential_pool_rpm_per_key and credential_pool_tpm_per_key from
+    the active profile's config.yaml. Returns (None, None) if unset or on
+    any error (the limits are advisory; the pool must keep working without
+    them).
+
+    Results are cached per-provider for the lifetime of the process to avoid
+    repeated disk reads from __post_init__ (called for every credential
+    construction).
+    """
+    if not hasattr(_lookup_provider_limits, "_cache"):
+        _lookup_provider_limits._cache = {}  # type: ignore[attr-defined]
+    cache = _lookup_provider_limits._cache  # type: ignore[attr-defined]
+    if provider in cache:
+        return cache[provider]
+    rpm: Optional[int] = None
+    tpm: Optional[int] = None
+    config = _load_config_safe()
+    if isinstance(config, dict):
+        rpm_map = config.get("credential_pool_rpm_per_key")
+        if isinstance(rpm_map, dict):
+            v = rpm_map.get(provider)
+            if isinstance(v, (int, float)) and v > 0:
+                rpm = int(v)
+        tpm_map = config.get("credential_pool_tpm_per_key")
+        if isinstance(tpm_map, dict):
+            v = tpm_map.get(provider)
+            if isinstance(v, (int, float)) and v > 0:
+                tpm = int(v)
+    cache[provider] = (rpm, tpm)
+    return rpm, tpm
+
+
 DEFAULT_MAX_CONCURRENT_PER_CREDENTIAL = 1
 
 
@@ -456,6 +546,11 @@ class CredentialPool:
         self._lock = threading.Lock()
         self._active_leases: Dict[str, int] = {}
         self._max_concurrent = DEFAULT_MAX_CONCURRENT_PER_CREDENTIAL
+        # Live-usage tracking: rolling USAGE_WINDOW_SECONDS deque per entry.
+        # _rpm_windows holds request timestamps; _tpm_windows holds
+        # (timestamp, total_tokens) tuples for token-rate accounting.
+        self._rpm_windows: Dict[str, Deque[float]] = {}
+        self._tpm_windows: Dict[str, Deque[Tuple[float, int]]] = {}
 
     def has_credentials(self) -> bool:
         return bool(self._entries)
@@ -466,6 +561,177 @@ class CredentialPool:
 
     def entries(self) -> List[PooledCredential]:
         return list(self._entries)
+
+    # ---- Live usage tracking ---------------------------------------------
+    # Record one API request against a credential. Used by the dispatch hook
+    # (loop.py → record_dispatch_metrics → here). Updates the rolling-window
+    # deques, persists the per-entry snapshot to the credential's fields so
+    # to_dict() can emit it, and increments the daily counter.
+
+    def record_request(
+        self,
+        entry_id: str,
+        tokens_in: int = 0,
+        tokens_out: int = 0,
+        now: Optional[float] = None,
+    ) -> None:
+        """Record an API request for RPM/TPM/daily tracking.
+
+        No-op if entry_id is unknown to this pool (prevents leak from
+        transient entries that were rotated out).
+        """
+        if not entry_id:
+            return
+        ts = now if now is not None else time.time()
+        total_tokens = max(0, int(tokens_in)) + max(0, int(tokens_out))
+        with self._lock:
+            if not any(e.id == entry_id for e in self._entries):
+                return
+            rpm_q = self._rpm_windows.setdefault(entry_id, deque())
+            rpm_q.append(ts)
+            tpm_q = self._tpm_windows.setdefault(entry_id, deque())
+            tpm_q.append((ts, total_tokens))
+            self._prune_usage_windows_locked(entry_id, ts)
+            self._update_entry_usage_locked(entry_id, ts)
+
+    def get_rpm(self, entry_id: str) -> int:
+        """Current rolling RPM for an entry (last USAGE_WINDOW_SECONDS)."""
+        if not entry_id:
+            return 0
+        with self._lock:
+            q = self._rpm_windows.get(entry_id)
+            if not q:
+                return 0
+            return self._count_fresh_rpm_locked(entry_id)
+
+    def get_tpm(self, entry_id: str) -> int:
+        """Current rolling TPM (total tokens in last USAGE_WINDOW_SECONDS)."""
+        if not entry_id:
+            return 0
+        with self._lock:
+            q = self._tpm_windows.get(entry_id)
+            if not q:
+                return 0
+            return self._count_fresh_tpm_locked(entry_id)
+
+    def _count_fresh_rpm_locked(self, entry_id: str) -> int:
+        """Drop stale samples and return remaining count.
+
+        Robust to out-of-order insertions (which shouldn't happen in
+        production but can in tests) by iterating the full deque.
+        """
+        cutoff = time.time() - USAGE_WINDOW_SECONDS
+        q = self._rpm_windows.get(entry_id)
+        if q is None:
+            return 0
+        fresh = [ts for ts in q if ts >= cutoff]
+        if len(fresh) != len(q):
+            self._rpm_windows[entry_id] = deque(fresh)
+        return len(fresh)
+
+    def _count_fresh_tpm_locked(self, entry_id: str) -> int:
+        """Drop stale samples and sum tokens from remaining."""
+        cutoff = time.time() - USAGE_WINDOW_SECONDS
+        q = self._tpm_windows.get(entry_id)
+        if q is None:
+            return 0
+        fresh = [(ts, tok) for ts, tok in q if ts >= cutoff]
+        if len(fresh) != len(q):
+            self._tpm_windows[entry_id] = deque(fresh)
+        return sum(tok for _, tok in fresh)
+
+    def get_daily_count(self, entry_id: str) -> int:
+        """UTC-day request count for an entry. 0 if unknown / not yet recorded today."""
+        entry = next((e for e in self._entries if e.id == entry_id), None)
+        if entry is None:
+            return 0
+        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        if entry.daily_request_count_date != today:
+            return 0
+        return int(entry.daily_request_count or 0)
+
+    def _prune_usage_windows_locked(
+        self, entry_id: str, now: Optional[float] = None
+    ) -> None:
+        """Drop samples older than USAGE_WINDOW_SECONDS from the rolling deques."""
+        ts = now if now is not None else time.time()
+        cutoff = ts - USAGE_WINDOW_SECONDS
+        rpm_q = self._rpm_windows.get(entry_id)
+        if rpm_q is not None:
+            while rpm_q and rpm_q[0] < cutoff:
+                rpm_q.popleft()
+        tpm_q = self._tpm_windows.get(entry_id)
+        if tpm_q is not None:
+            while tpm_q and tpm_q[0][0] < cutoff:
+                tpm_q.popleft()
+
+    def _update_entry_usage_locked(
+        self, entry_id: str, now: Optional[float] = None
+    ) -> None:
+        """Sync the per-entry usage fields with current window + daily counts.
+
+        Persists to disk via _persist() so the dashboard endpoints return
+        fresh values without an in-memory round-trip.
+        """
+        ts = now if now is not None else time.time()
+        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        idx = next(
+            (i for i, e in enumerate(self._entries) if e.id == entry_id), None
+        )
+        if idx is None:
+            return
+        entry = self._entries[idx]
+        rpm_q = self._rpm_windows.get(entry_id, deque())
+        tpm_q = self._tpm_windows.get(entry_id, deque())
+        new_rpm = len(rpm_q)
+        new_tpm = sum(tokens for _, tokens in tpm_q)
+        if entry.daily_request_count_date != today:
+            new_daily = 1
+        else:
+            new_daily = int(entry.daily_request_count or 0) + 1
+        # Skip the rebuild+persist if nothing changed (cheap fast path).
+        if (
+            entry.rpm_used_in_window == new_rpm
+            and entry.tpm_used_in_window == new_tpm
+            and entry.daily_request_count == new_daily
+            and entry.daily_request_count_date == today
+        ):
+            return
+        updated = replace(
+            entry,
+            rpm_used_in_window=new_rpm,
+            tpm_used_in_window=new_tpm,
+            daily_request_count=new_daily,
+            daily_request_count_date=today,
+        )
+        self._replace_entry(entry, updated)
+        # Persist asynchronously? No — write synchronously; auth.json writes
+        # are infrequent and the dashboard relies on freshness.
+        try:
+            self._persist()
+        except Exception:  # pragma: no cover — persistence errors must not break dispatch
+            logger.debug("credential_pool: failed to persist usage for %s", entry_id, exc_info=True)
+
+    def usage_snapshot(self) -> Dict[str, Dict[str, int]]:
+        """Return a {entry_id: {rpm, tpm, daily}} snapshot for the dashboard."""
+        with self._lock:
+            for entry_id in list(self._rpm_windows.keys()):
+                self._prune_usage_windows_locked(entry_id)
+            snapshot: Dict[str, Dict[str, int]] = {}
+            for entry in self._entries:
+                rpm_q = self._rpm_windows.get(entry.id, deque())
+                tpm_q = self._tpm_windows.get(entry.id, deque())
+                snapshot[entry.id] = {
+                    "rpm": len(rpm_q),
+                    "tpm": sum(tokens for _, tokens in tpm_q),
+                    "daily": int(entry.daily_request_count or 0)
+                    if entry.daily_request_count_date
+                    == datetime.now(timezone.utc).strftime("%Y-%m-%d")
+                    else 0,
+                    "rpm_limit": int(entry.rpm_limit) if entry.rpm_limit else 0,
+                    "tpm_limit": int(entry.tpm_limit) if entry.tpm_limit else 0,
+                }
+            return snapshot
 
     def current(self) -> Optional[PooledCredential]:
         if not self._current_id:
@@ -1540,6 +1806,60 @@ class CredentialPool:
                 return index, self._entries[index - 1], None
             return None, None, f"No credential #{index}."
         return None, None, f'No credential matching "{raw}".'
+
+    def set_priority(self, target: Any, priority: int) -> bool:
+        """Set the priority of a credential by id, label, or index.
+
+        Args:
+            target: The credential id, label, or numeric index.
+            priority: The new priority value.
+
+        Returns:
+            True if the priority was updated, False otherwise.
+        """
+        idx, entry, error = self.resolve_target(target)
+        if entry is None:
+            logger.warning("credential pool: %s", error or "entry not found")
+            return False
+        updated = replace(entry, priority=priority)
+        self._replace_entry(entry, updated)
+        self._persist()
+        logger.info(
+            "capacity_mesh: set priority for credential %s to %d",
+            entry.label or entry.id[:8],
+            priority,
+        )
+        return True
+
+    def demote(self, target: Any) -> bool:
+        """Demote a credential by reducing its priority by 1.
+
+        Args:
+            target: The credential id, label, or numeric index.
+
+        Returns:
+            True if the credential was demoted, False otherwise.
+        """
+        idx, entry, error = self.resolve_target(target)
+        if entry is None:
+            return False
+        if entry.priority <= -1:
+            logger.warning(
+                "capacity_mesh: credential %s already at minimum priority, cannot demote",
+                entry.label or entry.id[:8],
+            )
+            return False
+        new_priority = entry.priority - 1
+        updated = replace(entry, priority=new_priority)
+        self._replace_entry(entry, updated)
+        self._persist()
+        logger.warning(
+            "capacity_mesh: auto-demote credential %s — priority reduced from %d to %d (3 consecutive scores < 0.4)",
+            entry.label or entry.id[:8],
+            entry.priority,
+            new_priority,
+        )
+        return True
 
     def add_entry(self, entry: PooledCredential) -> PooledCredential:
         entry = replace(entry, priority=_next_priority(self._entries))

@@ -8758,6 +8758,294 @@ async def remove_credential_pool_entry(provider: str, index: int):
     return {"ok": True, "provider": provider, "count": len(pool.entries())}
 
 
+<<<<<<< Updated upstream
+=======
+class SetPriorityRequest(BaseModel):
+    priority: int
+
+
+@app.patch("/api/credentials/pool/{provider}/{label}/priority")
+async def set_credential_priority_endpoint(provider: str, label: str, body: SetPriorityRequest):
+    """Set the priority of a credential by provider and label."""
+    from agent.credential_pool import load_pool
+    from agent.capacity_mesh.runtime import set_credential_priority
+
+    provider = (provider or "").strip().lower()
+    label = (label or "").strip()
+    pool = load_pool(provider)
+    ok = set_credential_priority(pool, label, body.priority)
+    if not ok:
+        raise HTTPException(status_code=404, detail="Credential not found")
+    return {"ok": True, "provider": provider, "label": label, "priority": body.priority}
+
+
+# ---------------------------------------------------------------------------
+# Capacity plane endpoints — scores and test utility for auto-demotion
+# ---------------------------------------------------------------------------
+
+
+class ForceBadScoreRequest(BaseModel):
+    provider: str
+    label: str
+
+
+@app.get("/api/capacity")
+async def get_capacity_scores():
+    """Get all credential scores for the capacity plane."""
+    from agent.capacity_mesh.scorer import get_all_scores
+
+    return {"scores": get_all_scores()}
+
+
+@app.post("/api/capacity/_test/force_bad_score")
+async def force_bad_score(body: ForceBadScoreRequest):
+    """Test endpoint: force a bad score to trigger demotion logic.
+
+    This endpoint exists for testing the auto-demotion feature. In production,
+    scores are recorded automatically after each LLM invocation.
+    """
+    from agent.credential_pool import load_pool
+    from agent.capacity_mesh.runtime import record_dispatch_metrics
+
+    pool = load_pool(body.provider)
+    entry = next(
+        (e for e in pool._entries if e.label == body.label),
+        None,
+    )
+    if entry is None:
+        raise HTTPException(status_code=404, detail="Credential not found")
+
+    # Record a score of 0.3 (below threshold of 0.4)
+    record_dispatch_metrics(
+        pool,
+        entry,
+        {"latency_sec": 1.0, "has_error": True, "error_code": 429, "tokens_in": 0, "tokens_out": 0},
+    )
+
+    return {"ok": True, "provider": body.provider, "label": body.label}
+
+
+# ---------------------------------------------------------------------------
+# Capacity plane endpoint — model scores + routing config
+# ---------------------------------------------------------------------------
+
+
+@app.get("/api/v1/capacity/plane")
+async def get_capacity_plane():
+    """Get capacity plane data: model scores + mesh routes + config status
+    + per-provider RPM/TPM snapshots for the dashboard.
+
+    Returns scores.db contents, mesh_routes configuration, and a live usage
+    snapshot per provider (sum of all keys' rolling 60s windows + daily counts).
+    """
+    from agent.capacity_mesh.scorer import get_all_scores
+    from agent.capacity_mesh.config import load_plane_config
+    from agent.credential_pool import load_pool as _load_pool
+    from hermes_cli.auth import read_credential_pool as _read_pool
+
+    scores = get_all_scores()
+    plane_cfg = load_plane_config()
+
+    # Convert mesh_routes to serializable format
+    mesh_routes = {
+        model: [
+            {"provider": route.provider, "priority": route.priority, "model_alias": route.model_alias}
+            for route in routes
+        ]
+        for model, routes in plane_cfg.mesh_routes.items()
+    }
+
+    # Per-provider usage snapshot for dashboard sparklines + RPM/TPM gauges.
+    providers_payload = []
+    raw_pool = _read_pool()
+    for provider_id in sorted(raw_pool.keys()):
+        try:
+            _pool = _load_pool(provider_id)
+        except Exception:
+            continue
+        entries = _pool.entries()
+        if not entries:
+            continue
+        try:
+            snap = _pool.usage_snapshot()
+        except Exception:
+            snap = {}
+        rpm_total = sum(s.get("rpm", 0) for s in snap.values())
+        tpm_total = sum(s.get("tpm", 0) for s in snap.values())
+        daily_total = sum(s.get("daily", 0) for s in snap.values())
+        # Aggregate per-key snapshot (useful for the CredentialPoolBoard panel)
+        keys = []
+        for entry in entries:
+            s = snap.get(entry.id, {})
+            keys.append({
+                "key_id": entry.id,
+                "label": entry.label,
+                "rpm_used": s.get("rpm", 0),
+                "tpm_used": s.get("tpm", 0),
+                "daily_request_count": s.get("daily", 0),
+                "rpm_limit": s.get("rpm_limit") or None,
+                "tpm_limit": s.get("tpm_limit") or None,
+                "last_status": entry.last_status,
+                "priority": entry.priority,
+            })
+        providers_payload.append({
+            "provider": provider_id,
+            "rpm_used": rpm_total,
+            "tpm_used": tpm_total,
+            "daily_request_count": daily_total,
+            "rpm_limit": (entries[0].rpm_limit if entries else None),
+            "tpm_limit": (entries[0].tpm_limit if entries else None),
+            "keys": keys,
+        })
+
+    return {
+        "model_scores": scores,
+        "mesh_routes": mesh_routes,
+        "capacity_plane": {
+            "enabled": plane_cfg.enabled,
+            "mode": plane_cfg.mode,
+            "persistence_enabled": plane_cfg.persistence_enabled,
+            "recompute_interval_sec": plane_cfg.recompute_interval_sec,
+        },
+        "providers": providers_payload,
+    }
+
+
+# Lightweight usage-history endpoint for sparklines. The in-memory deque
+# data is process-local, so this endpoint queries the current rolling window
+# only (no long-term history). For long-term, see scores.db.
+@app.get("/api/v1/capacity/plane/history")
+async def get_capacity_plane_history(window_seconds: int = 300):
+    """Return current rolling-window usage per provider.
+
+    window_seconds is clamped to USAGE_WINDOW_SECONDS (60s) — the actual
+    deque window. Returns a list of (timestamp, provider, rpm, tpm) for
+    each entry's recent samples so the dashboard can render sparklines.
+    """
+    from agent.credential_pool import load_pool as _load_pool, USAGE_WINDOW_SECONDS
+    from hermes_cli.auth import read_credential_pool as _read_pool
+
+    raw_pool = _read_pool()
+    samples: List[Dict[str, Any]] = []
+    cutoff_window = min(int(window_seconds), int(USAGE_WINDOW_SECONDS))
+    for provider_id in sorted(raw_pool.keys()):
+        try:
+            _pool = _load_pool(provider_id)
+        except Exception:
+            continue
+        try:
+            snap = _pool.usage_snapshot()
+        except Exception:
+            continue
+        # We can't reconstruct exact timestamps per-sample from the snapshot
+        # (it returns aggregate counts), so we emit a single current sample
+        # per provider. Frontend sparklines should poll this endpoint
+        # every ~5s to build up the history client-side.
+        rpm = sum(s.get("rpm", 0) for s in snap.values())
+        tpm = sum(s.get("tpm", 0) for s in snap.values())
+        samples.append({
+            "timestamp": time.time(),
+            "provider": provider_id,
+            "rpm": rpm,
+            "tpm": tpm,
+        })
+    return {
+        "window_seconds": cutoff_window,
+        "samples": samples,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Credential pool UI endpoint — collapsed aggregate view for the dashboard.
+#
+# Returns provider-level summaries: active/exhausted/revoked counts and
+# cumulative request totals for the credential pool overview table.
+# ---------------------------------------------------------------------------
+
+
+@app.get("/api/v1/credentials/pool/ui")
+async def get_credential_pool_ui() -> Dict[str, Any]:
+    """Returns per-provider summaries + per-entry RPM/TPM/usage snapshots.
+
+    Each provider entry contains:
+      - provider: provider id
+      - counts: {active, exhausted, revoked}
+      - total_requests: cumulative request count
+      - strategy: pool rotation strategy
+      - entries: per-key snapshot with rpm_used, tpm_used, daily_request_count,
+        rpm_limit, tpm_limit, status, last_status_at, priority
+    """
+    from agent.credential_pool import (
+        load_pool,
+        STATUS_OK,
+        STATUS_EXHAUSTED,
+        STATUS_DEAD,
+    )
+    from hermes_cli.auth import read_credential_pool
+
+    providers = []
+    raw_pool = read_credential_pool()
+    for provider_id in sorted(raw_pool.keys()):
+        try:
+            pool = load_pool(provider_id)
+        except Exception:
+            _log.exception("load_pool(%s) failed for UI endpoint", provider_id)
+            continue
+        entries = pool.entries()
+        if not entries:
+            continue
+
+        # Snapshot live RPM/TPM/daily from the pool's rolling windows. This
+        # is in-memory; for entries that haven't recorded a request yet,
+        # the persisted to_dict() fields are used as fallback.
+        try:
+            usage_snapshot = pool.usage_snapshot()
+        except Exception:
+            usage_snapshot = {}
+
+        counts: Dict[str, int] = {"active": 0, "exhausted": 0, "revoked": 0}
+        entry_payloads: List[Dict[str, Any]] = []
+        for entry in entries:
+            status = getattr(entry, "last_status", None)
+            if status == STATUS_OK:
+                counts["active"] += 1
+            elif status == STATUS_EXHAUSTED:
+                counts["exhausted"] += 1
+            elif status == STATUS_DEAD:
+                counts["revoked"] += 1
+            else:
+                # No status = assume active
+                counts["active"] += 1
+
+            live = usage_snapshot.get(entry.id, {})
+            entry_payloads.append({
+                "id": entry.id,
+                "label": entry.label,
+                "provider": provider_id,
+                "priority": entry.priority,
+                "last_status": entry.last_status,
+                "last_status_at": entry.last_status_at,
+                "request_count": entry.request_count,
+                "rpm_used": live.get("rpm", entry.rpm_used_in_window or 0),
+                "tpm_used": live.get("tpm", entry.tpm_used_in_window or 0),
+                "daily_request_count": live.get("daily", entry.daily_request_count or 0),
+                "rpm_limit": live.get("rpm_limit", entry.rpm_limit or 0) or None,
+                "tpm_limit": live.get("tpm_limit", entry.tpm_limit or 0) or None,
+            })
+
+        total_requests = sum(getattr(e, "request_count", 0) for e in entries)
+
+        providers.append({
+            "provider": provider_id,
+            "counts": counts,
+            "total_requests": total_requests,
+            "strategy": pool._strategy,
+            "entries": entry_payloads,
+        })
+    return {"providers": providers}
+
+
+>>>>>>> Stashed changes
 # ---------------------------------------------------------------------------
 # Memory provider endpoints — status / list providers / select / disable / reset.
 #
