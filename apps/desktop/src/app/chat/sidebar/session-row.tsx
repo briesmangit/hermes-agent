@@ -10,6 +10,7 @@ import type { SessionInfo } from '@/hermes'
 import { type Translations, useI18n } from '@/i18n'
 import { sessionTitle } from '@/lib/chat-runtime'
 import { triggerHaptic } from '@/lib/haptics'
+import { profileColor } from '@/lib/profile-color'
 import { handoffOriginSource, sessionSourceLabel } from '@/lib/session-source'
 import { coarseElapsed } from '@/lib/time'
 import { cn } from '@/lib/utils'
@@ -46,110 +47,120 @@ function formatAge(seconds: number, r: Translations['sidebar']['row']): string {
 }
 
 export function SidebarSessionRow({
-  session,
-  branchStem,
-  isPinned,
-  isSelected,
-  isWorking,
-  onArchive,
-  onBranch,
-  onDelete,
-  onPin,
-  onResume,
-  reorderable = false,
-  dragging = false,
-  dragHandleProps,
-  className,
-  style,
-  ref,
-  ...rest
-}: SidebarSessionRowProps) {
-  const { t } = useI18n()
-  const r = t.sidebar.row
-  const title = sessionTitle(session)
-  const age = formatAge(session.last_active || session.started_at, r)
-  const handleLabel = `Reorder ${title}`
-  // A handed-off session's live source is local, but it originated on a
-  // messaging platform — surface that origin as a small badge so e.g. a
-  // Telegram thread continued here still reads as Telegram.
-  const handoffSource = handoffOriginSource(session.handoff_state, session.handoff_platform)
-  const handoffLabel = handoffSource ? (sessionSourceLabel(handoffSource) ?? handoffSource) : null
-  // Subscribe per-row (the leaf) instead of drilling a set through the list —
-  // the atom is tiny and rarely non-empty. True when a clarify prompt in this
-  // session is waiting on the user.
-  const needsInput = useStore($attentionSessionIds).includes(session.id)
+    session,
+    branchStem,
+    isPinned,
+    isSelected,
+    isWorking,
+    onArchive,
+    onBranch,
+    onDelete,
+    onPin,
+    onResume,
+    reorderable = false,
+    dragging = false,
+    dragHandleProps,
+    className,
+    style,
+    ref,
+    ...rest
+  }: SidebarSessionRowProps) {
+    const { t } = useI18n()
+    const r = t.sidebar.row
+    const title = sessionTitle(session)
+    const age = formatAge(session.last_active || session.started_at, r)
+    const handleLabel = `Reorder ${title}`
+    // A handed-off session's live source is local, but it originated on a
+    // messaging platform — surface that origin as a small badge so e.g. a
+    // Telegram thread continued here still reads as Telegram.
+    const handoffSource = handoffOriginSource(session.handoff_state, session.handoff_platform)
+    const handoffLabel = handoffSource ? (sessionSourceLabel(handoffSource) ?? handoffSource) : null
+    // Subscribe per-row (the leaf) instead of drilling a set through the list —
+    // the atom is tiny and rarely non-empty. True when a clarify prompt in this
+    // session is waiting on the user.
+    const needsInput = useStore($attentionSessionIds).includes(session.id)
 
-  return (
-    <SessionContextMenu
-      onArchive={onArchive}
-      onBranch={onBranch}
-      onDelete={onDelete}
-      onPin={onPin}
-      pinned={isPinned}
-      profile={session.profile}
-      sessionId={session.id}
-      title={title}
-    >
-      <SidebarRowShell
-        actions={
-          <div className="relative z-2 grid w-[1.375rem] place-items-center">
-            {!isWorking && (
-              <span className="pointer-events-none absolute right-6 top-1/2 min-w-6 -translate-y-1/2 text-right text-[0.625rem] leading-none text-(--ui-text-tertiary) opacity-0 transition-opacity group-hover:opacity-100">
-                {age}
-              </span>
-            )}
-            <SessionActionsMenu
-              onArchive={onArchive}
-              onBranch={onBranch}
-              onDelete={onDelete}
-              onPin={onPin}
-              pinned={isPinned}
-              profile={session.profile}
-              sessionId={session.id}
-              title={title}
-            >
-              <Button
-                aria-label={r.actionsFor(title)}
-                className="size-5 rounded-[4px] bg-transparent text-transparent transition-colors duration-100 hover:bg-(--ui-control-active-background) hover:text-foreground focus-visible:bg-(--ui-control-active-background) focus-visible:text-foreground focus-visible:ring-0 data-[state=open]:bg-(--ui-control-active-background) data-[state=open]:text-foreground group-hover:text-(--ui-text-tertiary) [&_svg]:size-3.5!"
-                size="icon"
-                title={r.sessionActions}
-                variant="ghost"
-              >
-                <Codicon name="kebab-vertical" size="0.875rem" />
-              </Button>
-            </SessionActionsMenu>
-          </div>
-        }
-        className={cn(
-          'group row-hover relative',
-          isSelected && 'bg-(--ui-row-active-background)',
-          isWorking && 'text-foreground',
-          // Opaque surface while lifted so the dragged row erases what's under
-          // it (translucency let the rows below bleed through).
-          dragging && 'z-10 cursor-grabbing bg-(--ui-sidebar-surface-background)',
-          className
-        )}
-        data-working={isWorking ? 'true' : undefined}
-        draggable
-        onDragStart={event => {
-          // Reorder drags belong to dnd-kit (the grab handle) — cancel the
-          // native drag so the two DnD systems don't fight.
-          if ((event.target as HTMLElement).closest('[data-reorder-handle]')) {
-            event.preventDefault()
+    // Profile-color left border: 3px normal, 4px for working sessions.
+    // Default profile (no color) gets neutral grey; working sessions get 4px.
+    const borderColor = profileColor(session.profile)
+    const borderWidth = isWorking ? 4 : 3
 
-            return
-          }
+    const borderStyle: React.CSSProperties = borderColor
+      ? { borderLeft: `${borderWidth}px solid ${borderColor}` }
+      : isWorking
+      ? { borderLeft: `${borderWidth}px solid hsl(var(--ui-border))` }
+      : {}
 
-          writeSessionDrag(event.dataTransfer, {
-            id: session.id,
-            profile: session.profile || 'default',
-            title
-          })
-        }}
-        ref={ref}
-        style={style}
-        {...rest}
+    return (
+      <SessionContextMenu
+        onArchive={onArchive}
+        onBranch={onBranch}
+        onDelete={onDelete}
+        onPin={onPin}
+        profile={session.profile}
+        sessionId={session.id}
+        title={title}
       >
+        <SidebarRowShell
+          actions={
+            <div className="relative z-2 grid w-[1.375rem] place-items-center">
+              {!isWorking && (
+                <span className="pointer-events-none absolute right-6 top-1/2 min-w-6 -translate-y-1/2 text-right text-[0.625rem] leading-none text-(--ui-text-tertiary) opacity-0 transition-opacity group-hover:opacity-100">
+                  {age}
+                </span>
+              )}
+              <SessionActionsMenu
+                onArchive={onArchive}
+                onBranch={onBranch}
+                onDelete={onDelete}
+                onPin={onPin}
+                pinned={isPinned}
+                profile={session.profile}
+                sessionId={session.id}
+                title={title}
+              >
+                <Button
+                  aria-label={r.actionsFor(title)}
+                  className="size-5 rounded-[4px] bg-transparent text-transparent transition-colors duration-100 hover:bg-(--ui-control-active-background) hover:text-foreground focus-visible:bg-(--ui-control-active-background) focus-visible:text-foreground focus-visible:ring-0 data-[state=open]:bg-(--ui-control-active-background) data-[state=open]:text-foreground group-hover:text-(--ui-text-tertiary) [&_svg]:size-3.5!"
+                  size="icon"
+                  title={r.sessionActions}
+                  variant="ghost"
+                >
+                  <Codicon name="kebab-vertical" size="0.875rem" />
+                </Button>
+              </SessionActionsMenu>
+            </div>
+          }
+          className={cn(
+            'group row-hover relative',
+            isSelected && 'bg-(--ui-row-active-background)',
+            isWorking && 'text-foreground',
+            // Opaque surface while lifted so the dragged row erases what's under
+            // it (translucency let the rows below bleed through).
+            dragging && 'z-10 cursor-grabbing bg-(--ui-sidebar-surface-background)',
+            className
+          )}
+          data-working={isWorking ? 'true' : undefined}
+          draggable
+          onDragStart={event => {
+            // Reorder drags belong to dnd-kit (the grab handle) — cancel the
+            // native drag so the two DnD systems don't fight.
+            if ((event.target as HTMLElement).closest('[data-reorder-handle]')) {
+              event.preventDefault()
+
+              return
+            }
+
+            writeSessionDrag(event.dataTransfer, {
+              id: session.id,
+              profile: session.profile || 'default',
+              title
+            })
+          }}
+          ref={ref}
+          style={{ ...style, ...borderStyle }}
+          {...rest}
+        >
         {isWorking && !needsInput && <span aria-hidden="true" className="arc-border" />}
         <SidebarRowBody
           className={cn('z-0 group-hover:pr-12', branchStem && 'pl-3.5')}
