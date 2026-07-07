@@ -36,9 +36,9 @@ import { $dirtyPreviewUrls } from '@/store/preview-edit'
 import { PreviewPane } from './preview-pane'
 
 export const PREVIEW_RAIL_MIN_WIDTH = '18rem'
-export const PREVIEW_RAIL_MAX_WIDTH = '38rem'
+export const PREVIEW_RAIL_MAX_WIDTH = '52rem'
 
-const INTRINSIC = `clamp(${PREVIEW_RAIL_MIN_WIDTH}, 36vw, 32rem)`
+const INTRINSIC = `clamp(${PREVIEW_RAIL_MIN_WIDTH}, 36vw, 40rem)`
 
 // Track for <Pane id="preview">. Folds the intrinsic clamp with a min-floor
 // against --chat-min-width so the chat surface never gets squeezed below it.
