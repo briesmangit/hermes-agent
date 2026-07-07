@@ -437,6 +437,11 @@
     --ui-selection-background: color-mix(in srgb, #ffd24a 38%, transparent);
   }
 
+  /* Mono dark theme: flat grey chat surface, no blur/noise */
+  :root[data-hermes-theme="mono"].dark {
+    --ui-chat-surface-background: #1a1a1a;
+  }
+
   * {
     box-sizing: border-box;
     border-color: var(--dt-border);
