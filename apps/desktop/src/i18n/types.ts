@@ -1263,6 +1263,9 @@ export interface Translations {
     results: string
     pinned: string
     sessions: string
+    working: string
+    needsInput: string
+    attention: string
     cronJobs: string
     groupAriaGrouped: string
     groupAriaUngrouped: string
@@ -1276,6 +1279,7 @@ export interface Translations {
     noProject: string
     projectEmpty: string
     noSessions: string
+    profileSummaryBar: string
     projects: {
       sectionLabel: string
       newButton: string

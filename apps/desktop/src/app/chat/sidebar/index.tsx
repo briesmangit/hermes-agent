@@ -59,7 +59,7 @@ import {
   toggleSidebarMessagingOpen,
   unpinSession
 } from '@/store/layout'
-import { $newChatProfile, $profiles, $profileScope, ALL_PROFILES, normalizeProfileKey } from '@/store/profile'
+import { $newChatProfile, $profiles, $profileScope, ALL_PROFILES, normalizeProfileKey, selectProfile } from '@/store/profile'
 import {
   $activeProjectId,
   $projects,
@@ -79,6 +79,7 @@ import {
   scanAndRecordRepos
 } from '@/store/projects'
 import {
+  $attentionSessionIds,
   $cronSessions,
   $currentCwd,
   $gatewayState,
@@ -102,6 +103,7 @@ import { countLabel } from './chrome'
 import { SidebarCronJobsSection } from './cron-jobs-section'
 import { SidebarLoadMoreRow } from './load-more-row'
 import { orderByIds, reconcileOrderIds, resolveManualSessionOrderIds, sameIds } from './order'
+import { ProfileSummaryBar } from './profile-summary-bar'
 import { ProfileRail } from './profile-switcher'
 import { ProjectDialog } from './project-dialog'
 import {
@@ -121,6 +123,7 @@ import {
 } from './projects'
 import { SidebarBlankState, SidebarPinnedEmptyState, SidebarSessionSkeletons } from './section-states'
 import { SidebarSessionsSection, VIRTUALIZE_THRESHOLD } from './sessions-section'
+import { WorkingSection } from './working-section'
 
 // Non-session groups (messaging platforms) stay compact: show a few rows up
 // front, reveal more in larger steps on demand. Keeps a busy platform from
@@ -250,6 +253,7 @@ export function ChatSidebar({
   const sessionsTotal = useStore($sessionsTotal)
   const sessionProfileTotals = useStore($sessionProfileTotals)
   const workingSessionIds = useStore($workingSessionIds)
+  const attentionSessionIds = useStore($attentionSessionIds)
   const profiles = useStore($profiles)
   const profileScope = useStore($profileScope)
   // Only surface the profile switcher when more than one profile exists, so
@@ -895,7 +899,9 @@ export function ChatSidebar({
 
   // The flat Sessions list always shows ALL recent sessions; Projects is a
   // parallel grouped view, not a filter on this one — nothing is hidden here.
-  const displayAgentSessions = agentSessions
+  // BUT: working sessions go in their own "Working" section (above Pinned),
+  // so we must exclude them from Recents to avoid duplication.
+  const displayAgentSessions = agentSessions.filter(s => !workingSessionIdSet.has(s.id))
 
   // Pagination is scope-aware. In "All profiles" mode it tracks the global
   // unified set. When scoped to one profile it must compare that profile's own
@@ -1110,6 +1116,18 @@ export function ChatSidebar({
           </SidebarGroupContent>
         </SidebarGroup>
 
+        {/* Profile Summary Bar — compact row of colored dots with activity badges */}
+        {contentVisible && showSessionSections && multiProfile && (
+          <ProfileSummaryBar
+            activeScope={profileScope}
+            attentionIds={new Set(attentionSessionIds)}
+            onProfileClick={selectProfile}
+            profiles={profiles}
+            sessions={sessions}
+            workingIds={workingSessionIdSet}
+          />
+        )}
+
         {contentVisible && showSessionSections && (
           <div className="shrink-0 px-2 pb-1 pt-1">
             <SearchField
@@ -1150,6 +1168,17 @@ export function ChatSidebar({
                 rootClassName="min-h-32 flex-1 overflow-hidden p-0"
                 sessions={searchResults}
                 workingSessionIdSet={workingSessionIdSet}
+              />
+            )}
+
+            {!trimmedQuery && (
+              <WorkingSection
+                activeSessionId={activeSidebarSessionId}
+                onArchiveSession={onArchiveSession}
+                onBranchSession={onBranchSession}
+                onDeleteSession={onDeleteSession}
+                onResumeSession={onResumeSession}
+                onTogglePin={pinSession}
               />
             )}
 
