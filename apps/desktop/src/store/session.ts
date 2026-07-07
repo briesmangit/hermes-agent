@@ -522,6 +522,47 @@ export function setSessionAttention(sessionId: string | null | undefined, needsI
   }
 }
 
+// Sessions whose turn just finished and now need the user's attention —
+// distinct from $attentionSessionIds (which only covers sessions blocked on a
+// clarify prompt). A completed-task session is idle, not blocked: the agent
+// has a result for the user to read, a decision to make, or follow-up work to
+// approve. Auto-expires so the section never accumulates stale entries.
+const COMPLETED_EXPIRY_MS = 30 * 60 * 1000 // 30 minutes
+const completedSessionExpiry = new Map<string, number>()
+
+export const $completedSessionIds = atom<string[]>([])
+export const setCompletedSessionIds = (next: Updater<string[]>) => updateAtom($completedSessionIds, next)
+
+export function setSessionCompleted(sessionId: string | null | undefined, completed: boolean) {
+  if (!sessionId) {
+    return
+  }
+
+  toggleMembership(setCompletedSessionIds, sessionId, completed)
+
+  if (completed) {
+    completedSessionExpiry.set(sessionId, Date.now() + COMPLETED_EXPIRY_MS)
+  } else {
+    completedSessionExpiry.delete(sessionId)
+  }
+}
+
+/** Stored ids of sessions marked completed within the expiry window. Prunes
+ *  expired entries as it reads, so it stays bounded without a timer. */
+export function getRecentlyCompletedSessionIds(now: number = Date.now()): string[] {
+  const live: string[] = []
+
+  for (const [id, expiry] of completedSessionExpiry) {
+    if (expiry > now) {
+      live.push(id)
+    } else {
+      completedSessionExpiry.delete(id)
+    }
+  }
+
+  return live
+}
+
 export function setSessionWorking(sessionId: string | null | undefined, working: boolean) {
   if (!sessionId) {
     return

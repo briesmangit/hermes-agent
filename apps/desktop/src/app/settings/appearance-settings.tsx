@@ -17,6 +17,7 @@ import { $activeGatewayProfile, $profiles, normalizeProfileKey } from '@/store/p
 import { $toolViewMode, setToolViewMode } from '@/store/tool-view'
 import { $translucency, setTranslucency } from '@/store/translucency'
 import { $zoomPercent, setZoomPercent } from '@/store/zoom'
+import { $terminalDockPosition, setTerminalDockPosition, type TerminalDockPosition } from '@/store/layout'
 import { getBaseColors, useTheme } from '@/themes/context'
 import { installVscodeThemeFromMarketplace } from '@/themes/install'
 import type { DesktopTheme } from '@/themes/types'
@@ -295,6 +296,13 @@ export function AppearanceSettings() {
 
   const matchedScalePreset = matchUiScalePreset(zoomPercent)
 
+  const terminalDockOptions = [
+    { id: 'right', label: a.terminalDockRight },
+    { id: 'bottom', label: a.terminalDockBottom }
+  ] as const satisfies readonly { id: TerminalDockPosition; label: string }[]
+
+  const terminalDockPosition = useStore($terminalDockPosition)
+
   return (
     <SettingsContent>
       <div>
@@ -493,6 +501,21 @@ export function AppearanceSettings() {
             }
             description={a.embedsDesc}
             title={a.embedsTitle}
+          />
+
+          <ListRow
+            action={
+              <SegmentedControl
+                onChange={id => {
+                  triggerHaptic('selection')
+                  setTerminalDockPosition(id as TerminalDockPosition)
+                }}
+                options={terminalDockOptions}
+                value={terminalDockPosition}
+              />
+            }
+            description={a.terminalDockDesc}
+            title={a.terminalDockTitle}
           />
         </div>
       </div>

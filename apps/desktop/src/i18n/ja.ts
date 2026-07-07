@@ -322,6 +322,10 @@ export const ja = defineLocale({
       installed: name => `「${name}」をインストールしました。`,
       removeTheme: 'テーマを削除',
       importedBadge: 'インポート済み',
+      terminalDockTitle: 'ターミナルドックの位置',
+      terminalDockDesc: '「右」はレール、「下」はチャット下部の全幅ストリップ（上端をドラッグでサイズ変更可能）になります。',
+      terminalDockRight: '右（サイドレール）',
+      terminalDockBottom: '下（水平ストリップ）',
       pet: {
         title: 'ペット',
         intro:
@@ -1479,6 +1483,7 @@ export const ja = defineLocale({
     working: '作業中',
     needsInput: '入力待ち',
     attention: '入力が必要',
+    completed: '完了したセッション',
     cronJobs: 'Cronジョブ',
     profileSummaryBar: 'プロファイル アクティビティ サマリー',
     groupAriaGrouped: 'セッションを単一リストとして表示',

@@ -313,6 +313,10 @@ export const zhHant = defineLocale({
       installed: name => `已安裝「${name}」。`,
       removeTheme: '移除主題',
       importedBadge: '已匯入',
+      terminalDockTitle: '終端機底座位置',
+      terminalDockDesc: '「右側」將終端機放在側邊欄，「底部」使其成為聊天下方可拖曳上緣的全寬工具列。',
+      terminalDockRight: '右側（側邊欄）',
+      terminalDockBottom: '底部（水平工具列）',
       pet: {
         title: '寵物',
         intro:
@@ -1433,6 +1437,7 @@ export const zhHant = defineLocale({
     working: '進行中',
     needsInput: '等待輸入',
     attention: '需要輸入',
+    completed: '已完成的工作階段',
     cronJobs: '排程任務',
     profileSummaryBar: '設定檔活動摘要',
     groupAriaGrouped: '以單一清單顯示工作階段',
