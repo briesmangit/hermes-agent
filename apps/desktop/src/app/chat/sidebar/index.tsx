@@ -80,6 +80,7 @@ import {
 } from '@/store/projects'
 import {
   $attentionSessionIds,
+  $completedSessionIds,
   $cronSessions,
   $currentCwd,
   $gatewayState,
@@ -93,7 +94,8 @@ import {
   $sessionsTotal,
   $workingSessionIds,
   sessionPinId,
-  setCurrentCwd
+  setCurrentCwd,
+  setSessionCompleted
 } from '@/store/session'
 
 import { type AppView, ARTIFACTS_ROUTE, MESSAGING_ROUTE, SKILLS_ROUTE } from '../../routes'
@@ -124,6 +126,7 @@ import {
 import { SidebarBlankState, SidebarPinnedEmptyState, SidebarSessionSkeletons } from './section-states'
 import { SidebarSessionsSection, VIRTUALIZE_THRESHOLD } from './sessions-section'
 import { WorkingSection } from './working-section'
+import { CompletedSection } from './completed-section'
 
 // Non-session groups (messaging platforms) stay compact: show a few rows up
 // front, reveal more in larger steps on demand. Keeps a busy platform from
@@ -674,11 +677,48 @@ export function ChatSidebar({
 
     // A session leaving the working set means its turn just completed.
     const aTurnSettled = prev.some(id => !workingSessionIds.includes(id))
-
     if (inEnteredProject && aTurnSettled) {
       refreshWorktrees()
     }
-  }, [workingSessionIds, inEnteredProject])
+  }, [workingSessionIds, inEnteredProject, refreshWorktrees])
+
+  // Track completed sessions when a turn settles (working→idle).
+  const completedSessions = useStore($completedSessionIds)
+  const completedIdSet = useMemo(() => new Set(completedSessions), [completedSessions])
+
+  // Mark recently-settled sessions as completed, and clear completed when a
+  // session is resumed. Completion auto-expires via the expiry map in store/session.ts.
+  useEffect(() => {
+    const prev = prevWorkingIdsRef.current
+    const newlyCompleted = prev.filter(id => !workingSessionIds.includes(id))
+
+    for (const id of newlyCompleted) {
+      if (!id) {
+        continue
+      }
+
+      const session = sessionByAnyId.get(id)
+
+      // Only mark as completed if the session has actual content and wasn't
+      // resumed during the same tick.
+      if (session && session.message_count > 0 && activeSidebarSessionId !== id) {
+        setSessionCompleted(id, true)
+      }
+    }
+  }, [workingSessionIds, sessionByAnyId, activeSidebarSessionId])
+
+  // Clear completed status when user resumes a session.
+  useEffect(() => {
+    if (!activeSidebarSessionId) {
+      return
+    }
+
+    const wasCompleted = completedIdSet.has(activeSidebarSessionId)
+
+    if (wasCompleted) {
+      setSessionCompleted(activeSidebarSessionId, false)
+    }
+  }, [activeSidebarSessionId, completedIdSet])
 
   useEffect(() => {
     if (!inEnteredProject) {
@@ -689,7 +729,7 @@ export function ChatSidebar({
     window.addEventListener('focus', onFocus)
 
     return () => window.removeEventListener('focus', onFocus)
-  }, [inEnteredProject])
+  }, [inEnteredProject, refreshWorktrees])
 
   const lastProjectCwdSyncRef = useRef<null | string>(null)
 
@@ -1173,6 +1213,17 @@ export function ChatSidebar({
 
             {!trimmedQuery && (
               <WorkingSection
+                activeSessionId={activeSidebarSessionId}
+                onArchiveSession={onArchiveSession}
+                onBranchSession={onBranchSession}
+                onDeleteSession={onDeleteSession}
+                onResumeSession={onResumeSession}
+                onTogglePin={pinSession}
+              />
+            )}
+
+            {!trimmedQuery && (
+              <CompletedSection
                 activeSessionId={activeSidebarSessionId}
                 onArchiveSession={onArchiveSession}
                 onBranchSession={onBranchSession}

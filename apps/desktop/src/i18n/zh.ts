@@ -404,6 +404,10 @@ export const zh: Translations = {
       installed: name => `已安装「${name}」。`,
       removeTheme: '移除主题',
       importedBadge: '已导入',
+      terminalDockTitle: '终端停靠位置',
+      terminalDockDesc: '「右侧」将终端放在侧边栏中，「底部」使其成为聊天下方可拖动上边缘的全宽工具栏。',
+      terminalDockRight: '右侧(侧边栏)',
+      terminalDockBottom: '底部(横向工具栏)',
       pet: {
         title: '宠物',
         intro:
@@ -1715,6 +1719,7 @@ export const zh: Translations = {
     working: '进行中',
     needsInput: '等待输入',
     attention: '需要输入',
+    completed: '已完成的会话',
     cronJobs: '定时任务',
     profileSummaryBar: '配置文件活动摘要',
     groupAriaGrouped: '以单一列表显示会话',

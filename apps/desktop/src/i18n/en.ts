@@ -416,6 +416,10 @@ export const en: Translations = {
       installed: name => `Installed “${name}”.`,
       removeTheme: 'Remove theme',
       importedBadge: 'Imported',
+      terminalDockTitle: 'Terminal Dock Position',
+      terminalDockDesc: 'Right places the terminal in the side rail. Bottom makes it a full-width strip beneath the chat with a draggable top border.',
+      terminalDockRight: 'Right (Side Rail)',
+      terminalDockBottom: 'Bottom (Horizontal Strip)',
       pet: {
         title: 'Pet',
         intro:
@@ -1538,6 +1542,7 @@ export const en: Translations = {
     working: 'Working',
     needsInput: 'Needs input',
     attention: 'Needs Input',
+    completed: 'Completed Sessions',
     cronJobs: 'Cron jobs',
     profileSummaryBar: 'Profile activity summary',
     groupAriaGrouped: 'Show sessions as a single list',

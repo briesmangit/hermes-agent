@@ -333,6 +333,10 @@ export interface Translations {
       installed: (name: string) => string
       removeTheme: string
       importedBadge: string
+      terminalDockTitle: string
+      terminalDockDesc: string
+      terminalDockRight: string
+      terminalDockBottom: string
       pet: {
         title: string
         intro: string
@@ -1266,6 +1270,7 @@ export interface Translations {
     working: string
     needsInput: string
     attention: string
+    completed: string
     cronJobs: string
     groupAriaGrouped: string
     groupAriaUngrouped: string

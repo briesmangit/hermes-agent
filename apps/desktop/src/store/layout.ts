@@ -30,6 +30,8 @@ const SIDEBAR_DISMISSED_AUTO_PROJECTS_STORAGE_KEY = 'hermes.desktop.dismissedAut
 const SIDEBAR_DISMISSED_WORKTREES_STORAGE_KEY = 'hermes.desktop.dismissedWorktrees'
 const PANES_FLIPPED_STORAGE_KEY = 'hermes.desktop.panesFlipped'
 const RIGHT_RAIL_ACTIVE_TAB_STORAGE_KEY = 'hermes.desktop.rightRailActiveTab'
+const TERMINAL_DOCK_POSITION_STORAGE_KEY = 'hermes.desktop.terminalDockPosition'
+const TERMINAL_DOCK_HEIGHT_STORAGE_KEY = 'hermes.desktop.terminalDockHeight'
 
 export const CHAT_SIDEBAR_PANE_ID = 'chat-sidebar'
 export const FILE_BROWSER_PANE_ID = 'file-browser'
@@ -140,6 +142,21 @@ export const $sidebarAgentsGrouped = persistentAtom(SIDEBAR_AGENTS_GROUPED_STORA
 // When true, the sessions sidebar moves to the right and the file browser +
 // preview rail move to the left — a mirror of the default layout.
 export const $panesFlipped = persistentAtom(PANES_FLIPPED_STORAGE_KEY, false, Codecs.bool)
+
+export type TerminalDockPosition = 'right' | 'bottom'
+
+export const $terminalDockPosition = persistentAtom<TerminalDockPosition>(
+  TERMINAL_DOCK_POSITION_STORAGE_KEY,
+  'right',
+  { decode: (raw: string) => (raw === 'bottom' ? 'bottom' : 'right') as TerminalDockPosition, encode: (v: TerminalDockPosition) => v }
+)
+
+export const $terminalDockHeight = persistentAtom<number>(
+  TERMINAL_DOCK_HEIGHT_STORAGE_KEY,
+  38, // default 38vh
+  { decode: (raw: string) => Math.max(15, Math.min(70, parseInt(raw, 10))), encode: (v: number) => String(v) }
+)
+
 export const $isSidebarResizing = atom(false)
 export const $sessionsLimit = atom(SIDEBAR_SESSIONS_PAGE_SIZE)
 
@@ -289,6 +306,19 @@ export function setSidebarProjectOrderIds(ids: string[]) {
 
 export function setSidebarResizing(resizing: boolean) {
   $isSidebarResizing.set(resizing)
+}
+
+export function toggleTerminalDockPosition() {
+  $terminalDockPosition.set($terminalDockPosition.get() === 'right' ? 'bottom' : 'right')
+}
+
+export function setTerminalDockPosition(position: TerminalDockPosition) {
+  $terminalDockPosition.set(position)
+}
+
+export function setTerminalDockHeight(height: number) {
+  const bounded = Math.max(15, Math.min(70, height))
+  $terminalDockHeight.set(bounded)
 }
 
 export function pinSession(sessionId: string, index?: number) {
