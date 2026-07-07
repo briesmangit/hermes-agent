@@ -241,6 +241,18 @@ export const $messages = atom<ChatMessage[]>([])
 export const $messagesEmpty = computed($messages, messages => messages.length === 0)
 export const $lastVisibleMessageIsUser = computed($messages, lastVisibleMessageIsUser)
 
+// Working sessions sorted by most recent activity (last_active)
+export const $workingSessions = computed(
+  [$sessions, $workingSessionIds],
+  (sessions, workingIds) => {
+    const workingSet = new Set(workingIds)
+
+    return sessions
+      .filter(s => workingSet.has(s.id))
+      .sort((a, b) => (b.last_active || 0) - (a.last_active || 0))
+  }
+)
+
 export const $freshDraftReady = atom(false)
 export const $busy = atom(false)
 export const $awaitingResponse = atom(false)
