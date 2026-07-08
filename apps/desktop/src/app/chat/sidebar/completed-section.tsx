@@ -1,4 +1,5 @@
 import { useStore } from '@nanostores/react'
+import { useEffect, useState } from 'react'
 import type * as React from 'react'
 
 import { SidebarPanelLabel } from '@/app/shell/sidebar-label'
@@ -6,10 +7,19 @@ import { DisclosureCaret } from '@/components/ui/disclosure-caret'
 import { SidebarGroup, SidebarGroupContent } from '@/components/ui/sidebar'
 import { useI18n } from '@/i18n'
 import { cn } from '@/lib/utils'
-import { $completedSessionIds, $sessions } from '@/store/session'
+import { $completedSessionIds, $sessions, completedSecondsRemaining, pruneCompletedSessions } from '@/store/session'
 
 import { SidebarCount } from './chrome'
 import { SidebarSessionRow } from './session-row'
+
+function formatCountdown(seconds: number): string {
+  if (seconds <= 0) {
+    return ''
+  }
+  const m = Math.floor(seconds / 60)
+  const s = seconds % 60
+  return `${m}:${s.toString().padStart(2, '0')}`
+}
 
 export function CompletedSection({
   activeSessionId,
@@ -32,6 +42,27 @@ export function CompletedSection({
   const allSessions = useStore($sessions)
   const completedSessions = allSessions.filter(session => completedSessionIds.includes(session.id))
   const completedCount = completedSessions.length
+
+  // Live countdown tick (1 s) — drives per-row "mm:ss" re-render.
+  const [, setTick] = useState(0)
+  useEffect(() => {
+    if (completedCount === 0) {
+      return
+    }
+    const id = setInterval(() => setTick(t => t + 1), 1000)
+    return () => clearInterval(id)
+  }, [completedCount])
+
+  // Prune expired completions once a second (cheap Map scan, only bumps atom when something expired).
+  useEffect(() => {
+    if (completedCount === 0) {
+      return
+    }
+    const id = setInterval(() => {
+      pruneCompletedSessions()
+    }, 1000)
+    return () => clearInterval(id)
+  }, [completedCount])
 
   // Section is hidden when empty.
   if (completedCount === 0) {
@@ -63,20 +94,29 @@ export function CompletedSection({
       </div>
       {open && completedCount > 0 && (
         <SidebarGroupContent className={contentClassName}>
-          {completedSessions.map(session => (
-            <SidebarSessionRow
-              isPinned={false}
-              isSelected={session.id === activeSessionId}
-              isWorking={false}
-              key={session.id}
-              onArchive={() => onArchiveSession(session.id)}
-              onBranch={onBranchSession ? () => onBranchSession(session.id, session.profile) : undefined}
-              onDelete={() => onDeleteSession(session.id)}
-              onPin={() => onTogglePin(session.id)}
-              onResume={() => onResumeSession(session.id)}
-              session={session}
-            />
-          ))}
+          {completedSessions.map(session => {
+            const remainingSec = completedSecondsRemaining(session.id)
+            return (
+              <SidebarSessionRow
+                isPinned={false}
+                isSelected={session.id === activeSessionId}
+                isWorking={false}
+                key={session.id}
+                onArchive={() => onArchiveSession(session.id)}
+                onBranch={onBranchSession ? () => onBranchSession(session.id, session.profile) : undefined}
+                onDelete={() => onDeleteSession(session.id)}
+                onPin={() => onTogglePin(session.id)}
+                onResume={() => onResumeSession(session.id)}
+                session={session}
+              >
+                {remainingSec > 0 && (
+                  <span className="shrink-0 ml-1 text-[0.625rem] font-mono text-(--ui-text-tertiary) tabular-nums">
+                    {formatCountdown(remainingSec)}
+                  </span>
+                )}
+              </SidebarSessionRow>
+            )
+          })}
         </SidebarGroupContent>
       )}
     </SidebarGroup>

@@ -522,12 +522,15 @@ export function setSessionAttention(sessionId: string | null | undefined, needsI
   }
 }
 
-// Sessions whose turn just finished and now need the user's attention —
+// Sessions whose turn just finished and now want the user's attention —
 // distinct from $attentionSessionIds (which only covers sessions blocked on a
 // clarify prompt). A completed-task session is idle, not blocked: the agent
 // has a result for the user to read, a decision to make, or follow-up work to
-// approve. Auto-expires so the section never accumulates stale entries.
-const COMPLETED_EXPIRY_MS = 30 * 60 * 1000 // 30 minutes
+// approve. Sessions stay in the "Completed" section for COMPLETED_TTL_MS, then
+// auto-prune so the section never accumulates stale entries. Clicks on a
+// completed row OPEN the session (no longer clearing completion immediately
+// — that was the vanish-on-click bug; explicit clearing is user-gesture only).
+export const COMPLETED_TTL_MS = 10 * 60 * 1000 // 10 minutes (user-requested)
 const completedSessionExpiry = new Map<string, number>()
 
 export const $completedSessionIds = atom<string[]>([])
@@ -541,10 +544,39 @@ export function setSessionCompleted(sessionId: string | null | undefined, comple
   toggleMembership(setCompletedSessionIds, sessionId, completed)
 
   if (completed) {
-    completedSessionExpiry.set(sessionId, Date.now() + COMPLETED_EXPIRY_MS)
+    completedSessionExpiry.set(sessionId, Date.now() + COMPLETED_TTL_MS)
   } else {
     completedSessionExpiry.delete(sessionId)
   }
+}
+
+/** Remove all completed entries whose TTL has passed. Returns true if anything
+ *  was pruned (caller bumps the atom). Idempotent and cheap. */
+export function pruneCompletedSessions(now: number = Date.now()): boolean {
+  let changed = false
+
+  for (const [id, expiry] of completedSessionExpiry) {
+    if (expiry <= now) {
+      completedSessionExpiry.delete(id)
+      changed = true
+    }
+  }
+
+  if (changed) {
+    const live = Array.from(completedSessionExpiry.keys())
+    setCompletedSessionIds(live)
+  }
+
+  return changed
+}
+
+/** Whole-second countdown until a session's completion TTL expires. Clamped to
+ *  zero. Used as the per-row metadata in the completed section so the user can
+ *  see exactly how long before a row auto-prunes. */
+export function completedSecondsRemaining(sessionId: string, now: number = Date.now()): number {
+  const expiry = completedSessionExpiry.get(sessionId)
+
+  return expiry ? Math.max(0, Math.ceil((expiry - now) / 1000)) : 0
 }
 
 /** Stored ids of sessions marked completed within the expiry window. Prunes
