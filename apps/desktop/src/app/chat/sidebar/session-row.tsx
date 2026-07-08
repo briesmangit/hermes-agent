@@ -3,6 +3,8 @@ import type * as React from 'react'
 
 import { writeSessionDrag } from '@/app/chat/composer/inline-refs'
 import { PlatformAvatar } from '@/app/messaging/platform-icon'
+import { ActivityTimerText } from '@/components/chat/activity-timer-text'
+import { useElapsedSeconds } from '@/components/chat/activity-timer'
 import { Button } from '@/components/ui/button'
 import { Codicon } from '@/components/ui/codicon'
 import { Tip } from '@/components/ui/tooltip'
@@ -35,6 +37,8 @@ interface SidebarSessionRowProps extends React.ComponentProps<'div'> {
   reorderable?: boolean
   dragging?: boolean
   dragHandleProps?: React.HTMLAttributes<HTMLElement>
+  /** Optional extra content rendered after the label (e.g. countdown badge for completed rows). */
+  children?: React.ReactNode
 }
 
 const AGE_KEY = { day: 'ageDay', hour: 'ageHour', minute: 'ageMin' } as const
@@ -63,6 +67,7 @@ export function SidebarSessionRow({
     className,
     style,
     ref,
+    children,
     ...rest
   }: SidebarSessionRowProps) {
     const { t } = useI18n()
@@ -79,6 +84,9 @@ export function SidebarSessionRow({
     // the atom is tiny and rarely non-empty. True when a clarify prompt in this
     // session is waiting on the user.
     const needsInput = useStore($attentionSessionIds).includes(session.id)
+
+    // Working-session elapsed timer (persists across remount via timerKey).
+    const elapsedSec = useElapsedSeconds(isWorking && !needsInput, `sidebar:${session.id}`)
 
     // Profile-color left border: 3px normal, 4px for working sessions.
     // Default profile (no color) gets neutral grey; working sessions get 4px.
@@ -104,6 +112,9 @@ export function SidebarSessionRow({
         <SidebarRowShell
           actions={
             <div className="relative z-2 grid w-[1.375rem] place-items-center">
+              {isWorking && !needsInput && (
+                <ActivityTimerText seconds={elapsedSec} className="absolute right-6 top-1/2 min-w-6 -translate-y-1/2 text-right text-[0.625rem] leading-none tabular-nums" />
+              )}
               {!isWorking && (
                 <span className="pointer-events-none absolute right-6 top-1/2 min-w-6 -translate-y-1/2 text-right text-[0.625rem] leading-none text-(--ui-text-tertiary) opacity-0 transition-opacity group-hover:opacity-100">
                   {age}
@@ -221,6 +232,7 @@ export function SidebarSessionRow({
           <SidebarRowLabel className="flex-1 font-normal group-hover:text-foreground group-data-[working=true]:text-foreground/90">
             {title}
           </SidebarRowLabel>
+          {children}
         </SidebarRowBody>
       </SidebarRowShell>
     </SessionContextMenu>

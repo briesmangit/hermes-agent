@@ -93,6 +93,8 @@ import {
   $sessionsLoading,
   $sessionsTotal,
   $workingSessionIds,
+  completedSecondsRemaining,
+  pruneCompletedSessions,
   sessionPinId,
   setCurrentCwd,
   setSessionCompleted
@@ -721,7 +723,39 @@ export function ChatSidebar({
     }
   }, [workingSessionIds, sessionByAnyId, activeSidebarSessionId])
 
-  // Clear completed status when user resumes a session.
+  // Prune expired completion entries once a second so the section never
+  // accumulates stale rows. Cheap (Map scan + setAtom only when something
+  // actually expired). Owns the prune clock — the per-row countdown below
+  // re-renders from `Date.now()` and is independent.
+  useEffect(() => {
+    if (completedSessions.length === 0) {
+      return
+    }
+
+    const interval = setInterval(() => {
+      pruneCompletedSessions()
+    }, 1000)
+
+    return () => clearInterval(interval)
+  }, [completedSessions.length])
+
+  // Tick once per second so per-row countdowns (e.g. "9:42") re-render in
+  // step with the prune clock above. No state mutation here, only a
+  // forced-reschedule to keep the countdown smooth.
+  const [, completedTick] = useState(0)
+  useEffect(() => {
+    if (completedSessions.length === 0) {
+      return
+    }
+
+    const interval = setInterval(() => completedTick(t => t + 1), 1000)
+
+    return () => clearInterval(interval)
+  }, [completedSessions.length])
+
+  // Clear completed status only on explicit user gestures (pin toggle or
+  // archive / delete handlers). Clicking a completed row OPENS the session
+  // — auto-clearing on select was the vanish-on-click bug.
   useEffect(() => {
     if (!activeSidebarSessionId) {
       return
@@ -730,7 +764,9 @@ export function ChatSidebar({
     const wasCompleted = completedIdSet.has(activeSidebarSessionId)
 
     if (wasCompleted) {
-      setSessionCompleted(activeSidebarSessionId, false)
+      // Intentionally a no-op: keep the row in the Completed section,
+      // let the TTL window govern its visibility. The actions menu is the
+      // explicit gesture for clearing (`Unmark complete`).
     }
   }, [activeSidebarSessionId, completedIdSet])
 
