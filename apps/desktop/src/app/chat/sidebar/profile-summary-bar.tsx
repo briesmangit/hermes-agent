@@ -50,6 +50,7 @@ export function ProfileSummaryBar({
     for (const profile of profiles) {
       const key = normalizeProfileKey(profile.name)
       const color = resolveProfileColor(profile.name, {})
+
       if (color) {
         // Count working sessions for this profile
         const workingSessionsForProfile = sessions.filter(

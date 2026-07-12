@@ -102,6 +102,7 @@ import { type AppView, ARTIFACTS_ROUTE, MESSAGING_ROUTE, SKILLS_ROUTE } from '..
 import type { SidebarNavItem } from '../../types'
 
 import { countLabel } from './chrome'
+import { CompletedSection } from './completed-section'
 import { SidebarCronJobsSection } from './cron-jobs-section'
 import { SidebarLoadMoreRow } from './load-more-row'
 import { orderByIds, reconcileOrderIds, resolveManualSessionOrderIds, sameIds } from './order'
@@ -126,7 +127,6 @@ import {
 import { SidebarBlankState, SidebarPinnedEmptyState, SidebarSessionSkeletons } from './section-states'
 import { SidebarSessionsSection, VIRTUALIZE_THRESHOLD } from './sessions-section'
 import { WorkingSection } from './working-section'
-import { CompletedSection } from './completed-section'
 
 // Non-session groups (messaging platforms) stay compact: show a few rows up
 // front, reveal more in larger steps on demand. Keeps a busy platform from
@@ -677,19 +677,33 @@ export function ChatSidebar({
 
     // A session leaving the working set means its turn just completed.
     const aTurnSettled = prev.some(id => !workingSessionIds.includes(id))
+
     if (inEnteredProject && aTurnSettled) {
       refreshWorktrees()
     }
   }, [workingSessionIds, inEnteredProject, refreshWorktrees])
 
+  // ────────────────────────────────────────────────────────────────────────
   // Track completed sessions when a turn settles (working→idle).
+  //
+  // Owned by this component, intentionally separate from the worktree-sync
+  // effect above that also diffs `workingSessionIds` for refreshWorktrees().
+  // They both need a "previous working set" snapshot, but if they share a
+  // ref, the first effect advances it BEFORE the second effect runs and
+  // this one sees `prev === current` → 0 newly-completed → the Completed
+  // tab atom is never populated; the section renders empty and looks
+  // missing. Two refs is the cheap fix. Advance at the TOP of the effect
+  // so a thrown/aborted run still leaves the ref consistent for the next
+  // render (an earlier flip trend bug).
+  // ────────────────────────────────────────────────────────────────────────
+  const completedPrevWorkingIdsRef = useRef<string[]>(workingSessionIds)
   const completedSessions = useStore($completedSessionIds)
   const completedIdSet = useMemo(() => new Set(completedSessions), [completedSessions])
 
-  // Mark recently-settled sessions as completed, and clear completed when a
-  // session is resumed. Completion auto-expires via the expiry map in store/session.ts.
+  // Mark recently-settled sessions as completed.
   useEffect(() => {
-    const prev = prevWorkingIdsRef.current
+    const prev = completedPrevWorkingIdsRef.current
+    completedPrevWorkingIdsRef.current = workingSessionIds
     const newlyCompleted = prev.filter(id => !workingSessionIds.includes(id))
 
     for (const id of newlyCompleted) {

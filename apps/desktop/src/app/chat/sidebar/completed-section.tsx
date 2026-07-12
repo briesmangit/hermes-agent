@@ -40,6 +40,7 @@ export function CompletedSection({
 
   // Header is not collapsible - always expanded
   const open = true
+
   const onToggle = () => {}
 
   const contentClassName = cn('flex flex-col gap-px pb-1.75 overflow-y-auto overscroll-contain')

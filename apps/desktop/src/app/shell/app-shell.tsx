@@ -11,8 +11,6 @@ import {
   $fileBrowserOpen,
   $panesFlipped,
   $sidebarOpen,
-  $terminalDockPosition,
-  $terminalDockHeight,
   FILE_BROWSER_DEFAULT_WIDTH,
   FILE_BROWSER_PANE_ID,
   setSidebarOpen
