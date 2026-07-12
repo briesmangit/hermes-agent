@@ -94,7 +94,6 @@ import {
   $sessionsLoading,
   $sessionsTotal,
   $workingSessionIds,
-  completedSecondsRemaining,
   pruneCompletedSessions,
   resetSessionNumberingCounter,
   sessionPinId,
@@ -360,11 +359,13 @@ export function ChatSidebar({
 
   // Session numbering — sequential IDs by creation order (started_at)
   const numberingEnabled = useStore($sessionNumberingEnabled)
+
   const sessionNumbers = useMemo(() => {
-    if (!numberingEnabled) return undefined
+    if (!numberingEnabled) {return undefined}
     const sorted = [...sessions].sort((a, b) => (a.started_at || 0) - (b.started_at || 0))
     const map = new Map<string, number>()
     sorted.forEach((s, i) => map.set(s.id, i + 1))
+
     return map
   }, [numberingEnabled, sessions])
 
@@ -496,6 +497,7 @@ export function ChatSidebar({
   const agentSessions = useMemo(
     () => {
       const base = agentOrderManual ? orderByIds(unpinnedAgentSessions, s => s.id, agentOrderIds) : unpinnedAgentSessions
+
       // Filter out working AND completed sessions from profile groups — they live in their own tabs
       return base.filter(s => !workingSessionIdSet.has(s.id) && !completedIdSet.has(s.id))
     },
@@ -1503,10 +1505,10 @@ export function ChatSidebar({
                   'min-h-32 flex-1 overflow-hidden p-0',
                   !recentsVirtualizes && 'compact:min-h-0 compact:flex-none compact:overflow-visible'
                 )}
+                sessionNumbers={sessionNumbers}
                 sessions={displayAgentSessions}
                 sortable={!showAllProfiles && agentSessions.length > 1}
                 workingSessionIdSet={workingSessionIdSet}
-                sessionNumbers={sessionNumbers}
               />
             )}
 
