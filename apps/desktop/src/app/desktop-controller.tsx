@@ -25,6 +25,8 @@ import {
   $fileBrowserOpen,
   $panesFlipped,
   $pinnedSessionIds,
+  $terminalDockHeight,
+  $terminalDockPosition,
   FILE_BROWSER_DEFAULT_WIDTH,
   FILE_BROWSER_MAX_WIDTH,
   FILE_BROWSER_MIN_WIDTH,
@@ -1140,6 +1142,9 @@ export function DesktopController() {
     />
   )
 
+  const terminalDockPosition = useStore($terminalDockPosition)
+  const terminalDockHeight = useStore($terminalDockHeight)
+
   // Flipped layout mirrors the default: sessions sidebar → right, file
   // browser + preview rail → left. Same panes, swapped sides.
   const sidebarSide = panesFlipped ? 'right' : 'left'
@@ -1152,9 +1157,11 @@ export function DesktopController() {
     (chatOpen && !narrowViewport && fileBrowserOpen) ||
     (chatOpen && Boolean(currentCwd.trim()) && !narrowViewport && reviewOpen)
 
-  // Once the terminal would share its rail with another sidebar, drop it to a
-  // full-width row beneath them rather than cramming in one more skinny column.
-  const terminalAsRow = terminalSidebarOpen && railColumnOpen
+  // Terminal bottom-dock mode (user preference): drops the terminal to a
+  // full-width row beneath the rail regardless of rail crowding. Otherwise
+  // the legacy "terminalAsRow" logic kicks in when the rail gets crowded.
+  const terminalAsBottomRow = terminalSidebarOpen && terminalDockPosition === 'bottom'
+  const terminalAsRow = terminalAsBottomRow || (terminalSidebarOpen && railColumnOpen)
 
   const previewPane = (
     <Pane
@@ -1230,7 +1237,7 @@ export function DesktopController() {
       defaultOpen
       disabled={!terminalSidebarOpen}
       divider
-      height="38vh"
+      height={`${terminalDockHeight}vh`}
       id="terminal-sidebar"
       key="terminal-sidebar"
       maxHeight="80vh"
