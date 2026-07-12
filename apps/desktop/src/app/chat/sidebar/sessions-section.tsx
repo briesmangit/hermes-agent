@@ -132,6 +132,8 @@ interface SidebarSessionsSectionProps {
   onReorderSessions?: (ids: string[]) => void
   // Drag-to-reorder for the project overview list (top-level projects).
   onReorderProjects?: (ids: string[]) => void
+  // Map of session id → sequential number (when numbering enabled)
+  sessionNumbers?: Map<string, number>
   // Rendered atop the entered-project body (a "back to overview" row).
   projectBackRow?: React.ReactNode
   dndSensors?: ReturnType<typeof useSensors>
@@ -173,6 +175,7 @@ export function SidebarSessionsSection({
   sortable = false,
   onReorderSessions,
   onReorderProjects,
+  sessionNumbers,
   projectBackRow,
   dndSensors
 }: SidebarSessionsSectionProps) {
@@ -197,6 +200,7 @@ export function SidebarSessionsSection({
       isPinned: pinned,
       isSelected: session.id === activeSessionId,
       isWorking: workingSessionIdSet.has(session.id),
+      sessionNumber: sessionNumbers?.get(session.id) ?? null,
       onArchive: () => onArchiveSession(session.id),
       onBranch: onBranchSession ? () => onBranchSession(session.id, session.profile) : undefined,
       onDelete: () => onDeleteSession(session.id),

@@ -88,6 +88,7 @@ import {
   $messagingSessions,
   $messagingTruncated,
   $selectedStoredSessionId,
+  $sessionNumberingEnabled,
   $sessionProfileTotals,
   $sessions,
   $sessionsLoading,
@@ -95,9 +96,11 @@ import {
   $workingSessionIds,
   completedSecondsRemaining,
   pruneCompletedSessions,
+  resetSessionNumberingCounter,
   sessionPinId,
   setCurrentCwd,
-  setSessionCompleted
+  setSessionCompleted,
+  setSessionNumberingEnabled
 } from '@/store/session'
 
 import { type AppView, ARTIFACTS_ROUTE, MESSAGING_ROUTE, SKILLS_ROUTE } from '../../routes'
@@ -350,6 +353,21 @@ export function ChatSidebar({
 
   const workingSessionIdSet = useMemo(() => new Set(workingSessionIds), [workingSessionIds])
 
+  // Completed sessions (within TTL window) — track early so profileGroups and
+  // displayAgentSessions can filter them out (they live in their own tabs).
+  const completedSessions = useStore($completedSessionIds)
+  const completedIdSet = useMemo(() => new Set(completedSessions), [completedSessions])
+
+  // Session numbering — sequential IDs by creation order (started_at)
+  const numberingEnabled = useStore($sessionNumberingEnabled)
+  const sessionNumbers = useMemo(() => {
+    if (!numberingEnabled) return undefined
+    const sorted = [...sessions].sort((a, b) => (a.started_at || 0) - (b.started_at || 0))
+    const map = new Map<string, number>()
+    sorted.forEach((s, i) => map.set(s.id, i + 1))
+    return map
+  }, [numberingEnabled, sessions])
+
   // Index sessions by both their live id and their lineage-root id so a pin
   // stored as the pre-compression root resolves to the live continuation tip.
   const sessionByAnyId = useMemo(() => {
@@ -476,8 +494,12 @@ export function ChatSidebar({
   }, [agentOrderIds, agentOrderManual, unpinnedAgentSessions])
 
   const agentSessions = useMemo(
-    () => (agentOrderManual ? orderByIds(unpinnedAgentSessions, s => s.id, agentOrderIds) : unpinnedAgentSessions),
-    [unpinnedAgentSessions, agentOrderIds, agentOrderManual]
+    () => {
+      const base = agentOrderManual ? orderByIds(unpinnedAgentSessions, s => s.id, agentOrderIds) : unpinnedAgentSessions
+      // Filter out working AND completed sessions from profile groups — they live in their own tabs
+      return base.filter(s => !workingSessionIdSet.has(s.id) && !completedIdSet.has(s.id))
+    },
+    [unpinnedAgentSessions, agentOrderIds, agentOrderManual, workingSessionIdSet, completedIdSet]
   )
 
   // Recents are local-only: messaging-platform sessions are fetched as their
@@ -699,8 +721,6 @@ export function ChatSidebar({
   // render (an earlier flip trend bug).
   // ────────────────────────────────────────────────────────────────────────
   const completedPrevWorkingIdsRef = useRef<string[]>(workingSessionIds)
-  const completedSessions = useStore($completedSessionIds)
-  const completedIdSet = useMemo(() => new Set(completedSessions), [completedSessions])
 
   // Mark recently-settled sessions as completed.
   useEffect(() => {
@@ -990,8 +1010,8 @@ export function ChatSidebar({
   // The flat Sessions list always shows ALL recent sessions; Projects is a
   // parallel grouped view, not a filter on this one — nothing is hidden here.
   // BUT: working sessions go in their own "Working" section (above Pinned),
-  // so we must exclude them from Recents to avoid duplication.
-  const displayAgentSessions = agentSessions.filter(s => !workingSessionIdSet.has(s.id))
+  // AND completed sessions go in "Completed" — so we must exclude both from Recents.
+  const displayAgentSessions = agentSessions.filter(s => !workingSessionIdSet.has(s.id) && !completedIdSet.has(s.id))
 
   // Pagination is scope-aware. In "All profiles" mode it tracks the global
   // unified set. When scoped to one profile it must compare that profile's own
@@ -1273,6 +1293,34 @@ export function ChatSidebar({
             )}
 
             {!trimmedQuery && (
+              <div className="flex shrink-0 items-center justify-between gap-1 px-1 pb-1">
+                <span className="text-[0.625rem] font-medium uppercase tracking-wide text-(--ui-text-quaternary)">
+                  Session #'s
+                </span>
+                <div className="flex items-center gap-1">
+                  <button
+                    aria-label="Toggle session numbering"
+                    className="rounded px-1.5 py-0.5 text-[0.625rem] font-medium text-(--ui-text-secondary) transition-colors hover:bg-(--ui-control-hover-background) hover:text-foreground"
+                    onClick={() => setSessionNumberingEnabled(!numberingEnabled)}
+                    type="button"
+                  >
+                    {numberingEnabled ? 'On' : 'Off'}
+                  </button>
+                  {numberingEnabled && (
+                    <button
+                      aria-label="Reset session numbering"
+                      className="rounded px-1.5 py-0.5 text-[0.625rem] font-medium text-(--ui-text-secondary) transition-colors hover:bg-(--ui-control-hover-background) hover:text-foreground"
+                      onClick={() => resetSessionNumberingCounter()}
+                      type="button"
+                    >
+                      Reset
+                    </button>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {!trimmedQuery && (
               <CompletedSection
                 activeSessionId={activeSidebarSessionId}
                 onArchiveSession={onArchiveSession}
@@ -1458,6 +1506,7 @@ export function ChatSidebar({
                 sessions={displayAgentSessions}
                 sortable={!showAllProfiles && agentSessions.length > 1}
                 workingSessionIdSet={workingSessionIdSet}
+                sessionNumbers={sessionNumbers}
               />
             )}
 

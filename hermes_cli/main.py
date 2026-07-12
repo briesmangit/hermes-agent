@@ -10341,6 +10341,28 @@ def _cmd_update_impl(args, gateway_mode: bool):
         except Exception as e:
             logger.debug("cua-driver refresh failed: %s", e)
 
+        # Run post-update hook if present (for custom branch rebuilds, etc.)
+        try:
+            post_update_hook = get_hermes_home() / "scripts" / "post-update.sh"
+            if post_update_hook.exists() and os.access(post_update_hook, os.X_OK):
+                print()
+                print("→ Running post-update hook...")
+                result = subprocess.run(
+                    [str(post_update_hook)],
+                    cwd=PROJECT_ROOT,
+                    capture_output=False,  # stream output directly
+                    text=True,
+                    timeout=600,  # 10 min max for build
+                )
+                if result.returncode != 0:
+                    print(f"  ⚠ Post-update hook exited with code {result.returncode}")
+                else:
+                    print("  ✓ Post-update hook completed")
+        except subprocess.TimeoutExpired:
+            print("  ⚠ Post-update hook timed out (10 min)")
+        except Exception as e:
+            logger.debug("Post-update hook failed: %s", e)
+
         # Write exit code *before* the gateway restart attempt.
         # When running as ``hermes update --gateway`` (spawned by the gateway's
         # /update command), this process lives inside the gateway's systemd

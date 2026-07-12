@@ -25,8 +25,19 @@ const COMPOSER_FAST_KEY = 'hermes.desktop.composer.fast'
 // empty new-chat. Stored (not runtime) id — the route is keyed by stored id.
 const LAST_SESSION_KEY = 'hermes.desktop.lastSessionId'
 
+// Session numbering localStorage keys
+const SESSION_NUMBERING_ENABLED_KEY = 'hermes.desktop.sessionNumberingEnabled'
+const SESSION_NUMBERING_COUNTER_KEY = 'hermes.desktop.sessionNumberingCounter'
+
 export const getRememberedSessionId = (): null | string => storedString(LAST_SESSION_KEY)
 export const setRememberedSessionId = (id: null | string) => persistString(LAST_SESSION_KEY, id)
+
+// Session numbering getters (read from localStorage, used to seed atoms below)
+export const getSessionNumberingEnabled = (): boolean => storedBoolean(SESSION_NUMBERING_ENABLED_KEY, false)
+export const getSessionNumberingCounter = (): number => {
+  const value = storedString(SESSION_NUMBERING_COUNTER_KEY)
+  return value ? parseInt(value, 10) : 0
+}
 
 let configuredDefaultProjectDir = ''
 
@@ -229,6 +240,11 @@ export const $messagingTruncated = atom<boolean>(false)
 export const $sessionProfileTotals = atom<Record<string, number>>({})
 export const $sessionsLoading = atom(true)
 export const $workingSessionIds = atom<string[]>([])
+
+// Session numbering atoms (reactive for UI)
+export const $sessionNumberingEnabled = atom(getSessionNumberingEnabled())
+export const $sessionNumberingCounter = atom(getSessionNumberingCounter())
+
 export const $activeSessionId = atom<string | null>(null)
 export const $selectedStoredSessionId = atom<string | null>(null)
 export const $messages = atom<ChatMessage[]>([])
@@ -388,6 +404,19 @@ export const setIntroSeed = (next: Updater<number>) => updateAtom($introSeed, ne
 export const setContextSuggestions = (next: Updater<ContextSuggestion[]>) => updateAtom($contextSuggestions, next)
 export const setModelPickerOpen = (next: Updater<boolean>) => updateAtom($modelPickerOpen, next)
 export const setSessionPickerOpen = (next: Updater<boolean>) => updateAtom($sessionPickerOpen, next)
+
+// Session numbering controls
+export const setSessionNumberingEnabled = (enabled: boolean) => {
+  updateAtom($sessionNumberingEnabled, enabled)
+  persistBoolean(SESSION_NUMBERING_ENABLED_KEY, enabled)
+}
+
+export const setSessionNumberingCounter = (counter: number) => {
+  updateAtom($sessionNumberingCounter, counter)
+  persistString(SESSION_NUMBERING_COUNTER_KEY, String(counter))
+}
+
+export const resetSessionNumberingCounter = () => setSessionNumberingCounter(0)
 
 // Watchdog tracking — when does a "working" session count as stuck?
 // Long-running tool calls (LLM inference, long shell commands, web fetches)

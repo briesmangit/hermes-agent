@@ -19,6 +19,8 @@ import {
   $currentReasoningEffort,
   $messages,
   $newChatWorkspaceTarget,
+  $sessionNumberingCounter,
+  $sessionNumberingEnabled,
   $sessions,
   $yoloActive,
   type NewChatWorkspaceTarget,
@@ -38,6 +40,7 @@ import {
   setResumeExhaustedSessionId,
   setResumeFailedSessionId,
   setSelectedStoredSessionId,
+  setSessionNumberingCounter,
   setSessions,
   setSessionStartedAt,
   setSessionsTotal,
@@ -240,6 +243,11 @@ export function useSessionActions({
         activeSessionIdRef.current = created.session_id
         selectedStoredSessionIdRef.current = stored
         ensureSessionState(created.session_id, stored)
+
+        // Assign sequential session number if numbering is enabled
+        if ($sessionNumberingEnabled.get()) {
+          setSessionNumberingCounter($sessionNumberingCounter.get() + 1)
+        }
 
         if (stored) {
           // Seed the sidebar preview with the user's first message so the row

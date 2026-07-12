@@ -16,7 +16,7 @@ import { profileColor } from '@/lib/profile-color'
 import { handoffOriginSource, sessionSourceLabel } from '@/lib/session-source'
 import { coarseElapsed } from '@/lib/time'
 import { cn } from '@/lib/utils'
-import { $attentionSessionIds } from '@/store/session'
+import { $attentionSessionIds, $sessionNumberingEnabled } from '@/store/session'
 import { canOpenSessionWindow, openSessionInNewWindow } from '@/store/windows'
 
 import { SidebarRowBody, SidebarRowGrab, SidebarRowLabel, SidebarRowLead, SidebarRowShell } from './chrome'
@@ -29,6 +29,8 @@ interface SidebarSessionRowProps extends React.ComponentProps<'div'> {
   isPinned: boolean
   isSelected: boolean
   isWorking: boolean
+  /** Sequential session number (when numbering is enabled, else null) */
+  sessionNumber?: number | null
   onArchive: () => void
   onBranch?: () => void
   onDelete: () => void
@@ -56,6 +58,7 @@ export function SidebarSessionRow({
     isPinned,
     isSelected,
     isWorking,
+    sessionNumber,
     onArchive,
     onBranch,
     onDelete,
@@ -75,6 +78,7 @@ export function SidebarSessionRow({
     const title = sessionTitle(session)
     const age = formatAge(session.last_active || session.started_at, r)
     const handleLabel = `Reorder ${title}`
+    const numberingEnabled = useStore($sessionNumberingEnabled)
     // A handed-off session's live source is local, but it originated on a
     // messaging platform — surface that origin as a small badge so e.g. a
     // Telegram thread continued here still reads as Telegram.
@@ -230,6 +234,11 @@ export function SidebarSessionRow({
             </Tip>
           ) : null}
           <SidebarRowLabel className="flex-1 font-normal group-hover:text-foreground group-data-[working=true]:text-foreground/90">
+            {numberingEnabled && sessionNumber != null && (
+              <span className="mr-1 shrink-0 font-mono text-[0.625rem] tabular-nums text-(--ui-text-quaternary)">
+                {String(sessionNumber).padStart(2, '0')}
+              </span>
+            )}
             {title}
           </SidebarRowLabel>
           {children}
