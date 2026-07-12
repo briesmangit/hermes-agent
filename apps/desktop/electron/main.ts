@@ -2849,16 +2849,37 @@ async function applyUpdatesPosixInApp(opts: any) {
 
   emitUpdateProgress({ stage: 'rebuild', message: 'Rebuilding the desktop app…', percent: 60 })
 
-  // Retry-once: a first rebuild can fail on a still-settling tree or a
-  // self-healed (network-blocked) Electron download; a second run builds clean
-  // off the healed dist so we reach the swap+relaunch below instead of bailing.
-  const rebuilt = await runRebuildWithRetry(attempt => {
-    if (attempt > 0) {
-      emitUpdateProgress({ stage: 'rebuild', message: 'Retrying the desktop rebuild…', percent: 60 })
-    }
+  // Custom branch support: if a post-update hook exists (e.g.
+  // ~/.hermes/profiles/<profile>/scripts/post-update.sh), run it instead of the
+  // bare `hermes desktop --build-only`. The hook is expected to: checkout the
+  // user's custom branch, rebase onto origin/main, run npm ci + build +
+  // dist:linux, and push back to their fork — so customizations survive the
+  // update automatically. Absent the hook, fall back to the default rebuild.
+  const postUpdateHook = path.join(updateRoot, 'scripts', 'post-update.sh')
+  let rebuilt: { code: number; error?: string } = { code: 0 }
 
-    return runStreamedUpdate(hermes, ['desktop', '--build-only'], { cwd: updateRoot, env, stage: 'rebuild' })
-  })
+  if (fs.existsSync(postUpdateHook) && fs.statSync(postUpdateHook).mode & 0o100) {
+    emitUpdateProgress({ stage: 'rebuild', message: 'Running post-update hook (custom branch rebase + rebuild)…', percent: 60 })
+
+    const hookResult = await runStreamedUpdate(postUpdateHook, [], {
+      cwd: updateRoot,
+      env,
+      stage: 'rebuild'
+    }) as any
+
+    rebuilt = { code: hookResult.code ?? 0, error: hookResult.error }
+  } else {
+    // Retry-once: a first rebuild can fail on a still-settling tree or a
+    // self-healed (network-blocked) Electron download; a second run builds clean
+    // off the healed dist so we reach the swap+relaunch below instead of bailing.
+    rebuilt = await runRebuildWithRetry(attempt => {
+      if (attempt > 0) {
+        emitUpdateProgress({ stage: 'rebuild', message: 'Retrying the desktop rebuild…', percent: 60 })
+      }
+
+      return runStreamedUpdate(hermes, ['desktop', '--build-only'], { cwd: updateRoot, env, stage: 'rebuild' })
+    }) as any
+  }
 
   if (rebuilt.code !== 0) {
     emitUpdateProgress({
