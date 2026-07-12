@@ -3,8 +3,8 @@ import type * as React from 'react'
 
 import { writeSessionDrag } from '@/app/chat/composer/inline-refs'
 import { PlatformAvatar } from '@/app/messaging/platform-icon'
-import { ActivityTimerText } from '@/components/chat/activity-timer-text'
 import { useElapsedSeconds } from '@/components/chat/activity-timer'
+import { ActivityTimerText } from '@/components/chat/activity-timer-text'
 import { Button } from '@/components/ui/button'
 import { Codicon } from '@/components/ui/codicon'
 import { Tip } from '@/components/ui/tooltip'
@@ -117,7 +117,7 @@ export function SidebarSessionRow({
           actions={
             <div className="relative z-2 grid w-[1.375rem] place-items-center">
               {isWorking && !needsInput && (
-                <ActivityTimerText seconds={elapsedSec} className="absolute right-6 top-1/2 min-w-6 -translate-y-1/2 text-right text-[0.625rem] leading-none tabular-nums" />
+                <ActivityTimerText className="absolute right-6 top-1/2 min-w-6 -translate-y-1/2 text-right text-[0.625rem] leading-none tabular-nums" seconds={elapsedSec} />
               )}
               {!isWorking && (
                 <span className="pointer-events-none absolute right-6 top-1/2 min-w-6 -translate-y-1/2 text-right text-[0.625rem] leading-none text-(--ui-text-tertiary) opacity-0 transition-opacity group-hover:opacity-100">

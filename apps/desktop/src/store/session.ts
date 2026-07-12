@@ -34,8 +34,10 @@ export const setRememberedSessionId = (id: null | string) => persistString(LAST_
 
 // Session numbering getters (read from localStorage, used to seed atoms below)
 export const getSessionNumberingEnabled = (): boolean => storedBoolean(SESSION_NUMBERING_ENABLED_KEY, false)
+
 export const getSessionNumberingCounter = (): number => {
   const value = storedString(SESSION_NUMBERING_COUNTER_KEY)
+
   return value ? parseInt(value, 10) : 0
 }
 
