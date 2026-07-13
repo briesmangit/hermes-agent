@@ -2813,8 +2813,19 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
             set_multiplex_active(bool(getattr(self.config, "multiplex_profiles", False)))
         except Exception:
             logger.debug("could not set multiplex-active flag", exc_info=True)
+
+        # Initialize capacity plane (gateway path)
+        try:
+            from agent.capacity_mesh.runtime import init_capacity_plane_if_enabled
+            plane = init_capacity_plane_if_enabled()
+            if plane:
+                logger.info("capacity_plane: gateway initialized (mode=%s)", plane.mode)
+            else:
+                logger.info("capacity_plane: disabled or not configured")
+        except Exception as e:
+            logger.warning("capacity_plane: gateway init failed: %s", e)
+
         self.adapters: Dict[Platform, BasePlatformAdapter] = {}
-        # Multi-profile multiplexing: adapters for NON-default profiles live
         # here, keyed by profile name then Platform. self.adapters stays the
         # default/active profile's map so the ~93 existing self.adapters[...]
         # sites are untouched when multiplexing is off (this dict is empty).

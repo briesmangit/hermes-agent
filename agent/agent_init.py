@@ -52,6 +52,12 @@ from hermes_cli.timeouts import get_provider_request_timeout
 from hermes_constants import get_hermes_home
 from utils import base_url_host_matches, is_truthy_value
 
+# Capacity plane initialization
+try:
+    from agent.capacity_mesh.runtime import init_capacity_plane_if_enabled
+except Exception:
+    init_capacity_plane_if_enabled = None
+
 # Use the same logger name as run_agent so tests patching ``run_agent.logger``
 # capture our warnings.  (run_agent.py also does
 # ``logger = logging.getLogger(__name__)``, which resolves to "run_agent"
@@ -381,6 +387,17 @@ def init_agent(
             remain skipped.
     """
     _install_safe_stdio()
+
+    # Initialize capacity plane (agent path)
+    if init_capacity_plane_if_enabled:
+        try:
+            plane = init_capacity_plane_if_enabled()
+            if plane:
+                logger.info("capacity_plane: agent initialized (mode=%s)", plane.mode)
+            else:
+                logger.info("capacity_plane: disabled or not configured")
+        except Exception as e:
+            logger.warning("capacity_plane: agent init failed: %s", e)
 
     agent.model = model
     agent.max_iterations = max_iterations
