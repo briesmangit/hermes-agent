@@ -640,6 +640,10 @@ export function setSessionWorking(sessionId: string | null | undefined, working:
   if (working) {
     clearSessionSettled(sessionId)
     armSessionWatchdog(sessionId)
+    // A session that starts working again must leave the Completed section
+    // immediately — otherwise it stays pinned in Completed with a live
+    // countdown while the agent is actively streaming a new turn.
+    setSessionCompleted(sessionId, false)
   } else {
     clearSessionWatchdog(sessionId)
 
