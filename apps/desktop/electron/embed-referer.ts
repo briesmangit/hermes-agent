@@ -1,4 +1,4 @@
-import { session } from 'electron'
+const { session } = require('electron')
 
 const EMBED_SESSION_PARTITION = 'persist:hermes-embed'
 const EMBED_REFERER = 'https://www.youtube.com/'
