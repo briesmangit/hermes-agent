@@ -6,6 +6,7 @@ import { DisclosureCaret } from '@/components/ui/disclosure-caret'
 import { SidebarGroup, SidebarGroupContent } from '@/components/ui/sidebar'
 import { useI18n } from '@/i18n'
 import { cn } from '@/lib/utils'
+import { ALL_PROFILES } from '@/store/profile'
 import { $workingSessions } from '@/store/session'
 
 import { SidebarCount } from './chrome'
@@ -14,6 +15,7 @@ import { SidebarSessionRow } from './session-row'
 export function WorkingSection({
   activeSessionId,
   hideInAllProfiles,
+  profileScope,
   onResumeSession,
   onArchiveSession,
   onDeleteSession,
@@ -24,6 +26,9 @@ export function WorkingSection({
   /** When true (ALL_PROFILES view) the section is suppressed — there is no
    *  single "this profile" to anchor it, and the All Activity tab covers all. */
   hideInAllProfiles: boolean
+  /** Current sidebar scope (profile key, or ALL_PROFILES). Drives the
+   *  "Working · ALPHA" header label. */
+  profileScope?: string | null
   onResumeSession: (sessionId: string) => void
   onArchiveSession: (sessionId: string) => void
   onDeleteSession: (sessionId: string) => void
@@ -34,6 +39,10 @@ export function WorkingSection({
   const s = t.sidebar
   const workingSessions = useStore($workingSessions)
   const workingCount = workingSessions.length
+
+  const labelText = profileScope && profileScope !== ALL_PROFILES
+    ? `${s.working} · ${profileScope.toUpperCase()}`
+    : s.working
 
   // The section is hidden when no working sessions (handled by parent)
   // Header is not collapsible - always expanded when visible
@@ -56,7 +65,7 @@ export function WorkingSection({
           onClick={onToggle}
           type="button"
         >
-          <SidebarPanelLabel>{s.working}</SidebarPanelLabel>
+          <SidebarPanelLabel>{labelText}</SidebarPanelLabel>
           <SidebarCount>{workingCount}</SidebarCount>
           <DisclosureCaret
             className="text-(--ui-text-tertiary) opacity-0 transition group-hover/section-label:opacity-100"
