@@ -8,6 +8,7 @@ import type { SessionInfo } from '@/hermes'
 import { useI18n } from '@/i18n'
 import { profileColor } from '@/lib/profile-color'
 import { $pinnedSessionIds } from '@/store/layout'
+import { normalizeProfileKey } from '@/store/profile'
 import { $allProfileSessions, $completedSessionIds, $workingSessionIds } from '@/store/session'
 
 import { SidebarCount } from './chrome'
@@ -15,6 +16,13 @@ import { SidebarSessionRow } from './session-row'
 
 interface AllActivitySectionProps {
   activeSessionId: string | null
+  /** Profile currently scoped in the sidebar. Sessions owned by this profile are
+   *  excluded so "Other Agents" shows only the OTHER profiles' live sessions
+   *  (no overlap with "Working (this profile)"). Null when scoped to ALL_PROFILES. */
+  currentProfile: string | null
+  /** When true (ALL_PROFILES view) the section is suppressed — that view already
+   *  shows every agent grouped by profile, so a separate overview is redundant. */
+  hideInAllProfiles: boolean
   onResumeSession: (sessionId: string) => void
   onDeleteSession: (sessionId: string) => void
   onArchiveSession: (sessionId: string) => void
@@ -24,16 +32,16 @@ interface AllActivitySectionProps {
 }
 
 /**
- * All Activity — a single always-visible overview of every profile's live
- * sessions (working / completed / pinned), sourced from the cross-profile
- * $allProfileSessions mirror (not the per-scope $sessions list, which is wiped
- * on gateway switch). Solves "switched to beta, lost sight of alpha's
- * completion": this section keeps every profile's status on screen regardless
- * of the sidebar's current scope. Each row carries a profile-color chip so you
- * know which agent owns it.
+ * Other Agents — every OTHER profile's live sessions (working / completed /
+ * pinned), sourced from the cross-profile $allProfileSessions mirror. Excludes
+ * the currently-scoped profile so it never overlaps with "Working (this
+ * profile)". Hidden in ALL_PROFILES view (the unified grouped view covers it).
+ * Each row carries a profile-color chip so you know which agent owns it.
  */
 export function AllActivitySection({
   activeSessionId,
+  currentProfile,
+  hideInAllProfiles,
   onResumeSession,
   onDeleteSession,
   onArchiveSession,
@@ -56,12 +64,17 @@ export function AllActivitySection({
 
   // Only surface sessions that are actually "active" in some sense: working,
   // recently completed, or pinned. Pure-idle recents would just duplicate the
-  // main list, so they're excluded here.
+  // main list, so they're excluded here. The current profile is filtered out
+  // so this section reads strictly as "other agents".
   const overviewSessions = useMemo(() => {
     const seen = new Set<string>()
     const out: SessionInfo[] = []
 
     for (const session of allSessions) {
+      if (currentProfile && normalizeProfileKey(session.profile) === normalizeProfileKey(currentProfile)) {
+        continue
+      }
+
       const id = session._lineage_root_id ?? session.id
 
       if (seen.has(id)) {
@@ -75,9 +88,9 @@ export function AllActivitySection({
     }
 
     return out.sort((a, b) => (b.last_active || 0) - (a.last_active || 0))
-  }, [allSessions, workingSet, completedSet, pinnedSet])
+  }, [allSessions, workingSet, completedSet, pinnedSet, currentProfile])
 
-  if (overviewSessions.length === 0) {
+  if (hideInAllProfiles || overviewSessions.length === 0) {
     return null
   }
 
@@ -89,7 +102,7 @@ export function AllActivitySection({
           onClick={() => setOpen(!open)}
           type="button"
         >
-          <SidebarPanelLabel>{s.allActivity}</SidebarPanelLabel>
+          <SidebarPanelLabel>{s.otherAgents}</SidebarPanelLabel>
           <SidebarCount>{overviewSessions.length}</SidebarCount>
           <DisclosureCaret className="text-(--ui-text-tertiary) opacity-0 transition group-hover/section-label:opacity-100" open={open} />
         </button>

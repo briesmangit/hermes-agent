@@ -13,6 +13,7 @@ import { SidebarSessionRow } from './session-row'
 
 export function WorkingSection({
   activeSessionId,
+  hideInAllProfiles,
   onResumeSession,
   onArchiveSession,
   onDeleteSession,
@@ -20,6 +21,9 @@ export function WorkingSection({
   onTogglePin,
 }: {
   activeSessionId: string | null
+  /** When true (ALL_PROFILES view) the section is suppressed — there is no
+   *  single "this profile" to anchor it, and the All Activity tab covers all. */
+  hideInAllProfiles: boolean
   onResumeSession: (sessionId: string) => void
   onArchiveSession: (sessionId: string) => void
   onDeleteSession: (sessionId: string) => void
@@ -39,6 +43,10 @@ export function WorkingSection({
   const onToggle = () => {} // no-op since always open
 
   const contentClassName = cn('flex flex-col gap-px pb-1.75 overflow-y-auto overscroll-contain')
+
+  if (hideInAllProfiles || workingCount === 0) {
+    return null
+  }
 
   return (
     <SidebarGroup className="shrink-0 p-0 pb-1">

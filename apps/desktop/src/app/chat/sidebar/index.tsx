@@ -1307,6 +1307,7 @@ export function ChatSidebar({
             {!trimmedQuery && (
               <WorkingSection
                 activeSessionId={activeSidebarSessionId}
+                hideInAllProfiles={showAllProfiles}
                 onArchiveSession={onArchiveSession}
                 onBranchSession={onBranchSession}
                 onDeleteSession={onDeleteSession}
@@ -1318,6 +1319,8 @@ export function ChatSidebar({
             {!trimmedQuery && (
               <AllActivitySection
                 activeSessionId={activeSidebarSessionId}
+                currentProfile={showAllProfiles ? null : profileScope}
+                hideInAllProfiles={showAllProfiles}
                 onArchiveSession={onArchiveSession}
                 onBranchSession={onBranchSession}
                 onDeleteSession={onDeleteSession}
