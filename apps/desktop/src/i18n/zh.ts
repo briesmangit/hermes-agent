@@ -1719,7 +1719,7 @@ export const zh: Translations = {
     needsInput: '等待输入',
     attention: '需要输入',
     completed: '已完成的会话',
-    working: '进行中（当前配置文件）',
+    working: '进行中',
     otherAgents: '其他代理',
     sunset: '搁置',
     markSunset: '标记为搁置',

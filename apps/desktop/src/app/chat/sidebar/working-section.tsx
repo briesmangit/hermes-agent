@@ -41,7 +41,7 @@ export function WorkingSection({
   const workingCount = workingSessions.length
 
   const labelText = profileScope && profileScope !== ALL_PROFILES
-    ? `${s.working} · ${profileScope.toUpperCase()}`
+    ? profileScope.toUpperCase()
     : s.working
 
   // The section is hidden when no working sessions (handled by parent)
