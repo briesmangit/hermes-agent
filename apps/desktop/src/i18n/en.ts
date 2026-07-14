@@ -1542,7 +1542,7 @@ export const en: Translations = {
     needsInput: 'Needs input',
     attention: 'Needs Input',
     completed: 'Completed Sessions',
-    working: 'Working (this profile)',
+    working: 'Working',
     otherAgents: 'Other Agents',
     sunset: 'Sunset',
     markSunset: 'Mark as Sunset',

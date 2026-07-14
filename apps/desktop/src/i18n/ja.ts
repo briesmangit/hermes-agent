@@ -1483,7 +1483,7 @@ export const ja = defineLocale({
     needsInput: '入力待ち',
     attention: '入力が必要',
     completed: '完了したセッション',
-    working: '作業中（このプロフィール）',
+    working: '作業中',
     otherAgents: '他のエージェント',
     sunset: 'サンセット',
     markSunset: 'サンセットにする',

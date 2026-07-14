@@ -1437,7 +1437,7 @@ export const zhHant = defineLocale({
     needsInput: '等待輸入',
     attention: '需要輸入',
     completed: '已完成的工作階段',
-    working: '進行中（目前設定檔）',
+    working: '進行中',
     otherAgents: '其他代理',
     sunset: '擱置',
     markSunset: '標記為擱置',
