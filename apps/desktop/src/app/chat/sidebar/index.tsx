@@ -78,6 +78,7 @@ import {
   scanAndRecordRepos
 } from '@/store/projects'
 import {
+  $allProfileSessions,
   $attentionSessionIds,
   $completedSessionIds,
   $cronSessions,
@@ -263,6 +264,7 @@ export function ChatSidebar({
   const sessionsTotal = useStore($sessionsTotal)
   const sessionProfileTotals = useStore($sessionProfileTotals)
   const workingSessionIds = useStore($workingSessionIds)
+  const allProfileSessions = useStore($allProfileSessions)
   const attentionSessionIds = useStore($attentionSessionIds)
   const profiles = useStore($profiles)
   const profileScope = useStore($profileScope)
@@ -764,6 +766,31 @@ export function ChatSidebar({
       }
     }
   }, [workingSessionIds, sessionByAnyId, activeSidebarSessionId])
+
+  // Cross-profile completion detection. The effect above only watches the
+  // active profile's working set, so other profiles' completions are missed
+  // while you're scoped elsewhere. The cross-profile mirror ($allProfileSessions)
+  // carries every profile's live state, so diff it: a session that flips from
+  // active→inactive (with content) is "completed" regardless of which profile
+  // it belongs to. Solves "beta/charlie completions never appear in Completed".
+  const completedPrevActiveRef = useRef<Map<string, boolean>>(new Map())
+  useEffect(() => {
+    const prev = completedPrevActiveRef.current
+    const next = new Map<string, boolean>()
+
+    for (const session of allProfileSessions) {
+      const active = Boolean(session.is_active)
+      next.set(session.id, active)
+
+      const wasActive = prev.get(session.id)
+
+      if (wasActive === true && !active && session.message_count > 0 && activeSidebarSessionId !== session.id) {
+        setSessionCompleted(session.id, true)
+      }
+    }
+
+    completedPrevActiveRef.current = next
+  }, [allProfileSessions, activeSidebarSessionId])
 
   // Prune expired completion entries once a second so the section never
   // accumulates stale rows. Cheap (Map scan + setAtom only when something
