@@ -69,7 +69,24 @@ def test_fill_first_selection_skips_recently_exhausted_entry(tmp_path, monkeypat
     assert pool.current().id == "cred-2"
 
 
-def test_select_clears_expired_exhaustion(tmp_path, monkeypatch):
+def test_select_keeps_exhausted_without_reset_signal(tmp_path, monkeypatch):
+    """Layer 3: a drained key with no provider reset_at signal stays exhausted.
+
+    Previously the pool auto-cleared any exhausted key past its TTL cooldown,
+    assuming 'time elapsed = recovered'.  For providers that don't return
+    Retry-After / X-RateLimit-Reset on 429 (NVIDIA NIM, Ollama Pro weekly,
+    most quota-based 402s), 'time elapsed' just means we waited — the upstream
+    daily/weekly quota almost certainly hasn't rolled.  Auto-clearing such a
+    key puts it back in rotation to 429 again, costing a round-trip to
+    rediscover what we already knew (the 'exhausted keys still handed out'
+    production symptom).  The fix: only auto-clear when a real reset_at was
+    present AND now > reset_at.
+
+    This test replaces the legacy ``test_select_clears_expired_exhaustion``
+    which asserted the buggy 1h-auto-clear behavior.  The complement
+    (real reset_at present, now > reset_at → key recovers) is covered by
+    ``test_select_recovers_with_real_reset_at`` below.
+    """
     monkeypatch.setenv("HERMES_HOME", str(tmp_path / "hermes"))
     _write_auth_store(
         tmp_path,
@@ -96,8 +113,54 @@ def test_select_clears_expired_exhaustion(tmp_path, monkeypatch):
     from agent.credential_pool import load_pool
 
     pool = load_pool("anthropic")
+    # No reset_at + 25h past exhaustion → pool must NOT auto-clear.
     entry = pool.select()
+    assert entry is None, (
+        "Pool returned a key the upstream still considers exhausted. "
+        "Layer 3 no-auto-clear rule must keep this key out of rotation."
+    )
+    # The entry stays exhausted on disk
+    assert pool.entries()[0].last_status == "exhausted"
 
+
+def test_select_recovers_with_real_reset_at(tmp_path, monkeypatch):
+    """Layer 3 companion: real provider reset_at present and elapsed → recover.
+
+    When the upstream *did* return a reset signal (Retry-After,
+    X-RateLimit-Reset, or a parsed 'resets in N hr N min' message), and that
+    timestamp is now in the past, the pool should auto-clear the key back to
+    STATUS_OK.  This is the legitimate recovery path that the no-auto-clear
+    rule does NOT block.
+    """
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path / "hermes"))
+    # last_error_reset_at was 5 minutes ago — window has demonstrated rolled
+    _write_auth_store(
+        tmp_path,
+        {
+            "version": 1,
+            "credential_pool": {
+                "anthropic": [
+                    {
+                        "id": "cred-1",
+                        "label": "old",
+                        "auth_type": "api_key",
+                        "priority": 0,
+                        "source": "manual",
+                        "access_token": "***",
+                        "last_status": "exhausted",
+                        "last_status_at": time.time() - 90000,
+                        "last_error_code": 429,
+                        "last_error_reset_at": time.time() - 300,  # 5 min ago
+                    }
+                ]
+            },
+        },
+    )
+
+    from agent.credential_pool import load_pool
+
+    pool = load_pool("anthropic")
+    entry = pool.select()
     assert entry is not None
     assert entry.last_status == "ok"
 
@@ -189,7 +252,17 @@ def test_random_strategy_uses_random_choice(tmp_path, monkeypatch):
 
 
 
-def test_exhausted_entry_resets_after_ttl(tmp_path, monkeypatch):
+def test_exhausted_429_entry_stays_out_of_rotation_until_real_signal(tmp_path, monkeypatch):
+    """Layer 3: 429 with no provider reset_at stays exhausted past TTL.
+
+    25h have passed since a 429 exhaustion with no ``last_error_reset_at`` signal.
+    Under the new Layer 3 rule the pool must NOT auto-clear this key — the
+    upstream daily/weekly quota window almost certainly hasn't rolled just
+    because we waited.  select() returns None (no available keys), and the
+    entry remains ``exhausted`` on disk until either:
+      * a successful 200 response proves recovery (mark_ok_on_success), or
+      * the operator issues ``hermes pool reset`` after probing the upstream.
+    """
     monkeypatch.setenv("HERMES_HOME", str(tmp_path / "hermes"))
     _write_auth_store(
         tmp_path,
@@ -203,7 +276,7 @@ def test_exhausted_entry_resets_after_ttl(tmp_path, monkeypatch):
                         "auth_type": "api_key",
                         "priority": 0,
                         "source": "manual",
-                        "access_token": "sk-or-primary",
+                        "access_token": "«redacted:sk-…»",
                         "base_url": "https://openrouter.ai/api/v1",
                         "last_status": "exhausted",
                         "last_status_at": time.time() - 90000,
@@ -219,13 +292,17 @@ def test_exhausted_entry_resets_after_ttl(tmp_path, monkeypatch):
     pool = load_pool("openrouter")
     entry = pool.select()
 
-    assert entry is not None
-    assert entry.id == "cred-1"
-    assert entry.last_status == "ok"
+    assert entry is None, "429-exhausted key with no reset_at must NOT re-enter rotation on TTL alone"
+    assert pool.entries()[0].last_status == "exhausted"
 
 
-def test_exhausted_402_entry_resets_after_one_hour(tmp_path, monkeypatch):
-    """402-exhausted credentials recover after 1 hour, not 24."""
+def test_exhausted_402_entry_stays_out_of_rotation_without_reset_signal(tmp_path, monkeypatch):
+    """Layer 3: 402 (billing/quota) also requires a real reset signal.
+
+    402 exhaustion is quota-based like 429; "TTL elapsed" doesn't mean the
+    upstream billing window rolled.  Even 1h2m after a 402, the pool must
+    keep this key out of rotation until mark_ok_on_success or operator reset.
+    """
     monkeypatch.setenv("HERMES_HOME", str(tmp_path / "hermes"))
     _write_auth_store(
         tmp_path,
@@ -255,9 +332,8 @@ def test_exhausted_402_entry_resets_after_one_hour(tmp_path, monkeypatch):
     pool = load_pool("openrouter")
     entry = pool.select()
 
-    assert entry is not None
-    assert entry.id == "cred-1"
-    assert entry.last_status == "ok"
+    assert entry is None, "402-exhausted key with no reset_at must NOT re-enter rotation on TTL alone"
+    assert pool.entries()[0].last_status == "exhausted"
 
 
 def test_exhausted_401_entry_resets_after_five_minutes(tmp_path, monkeypatch):
@@ -3290,3 +3366,498 @@ def test_sync_anthropic_entry_clears_all_error_fields(tmp_path, monkeypatch):
     assert synced.last_error_reason is None
     assert synced.last_error_message is None
     assert synced.last_error_reset_at is None
+
+
+# ── Layer 1-4: Credential pool hardening tests ──────────────────────────
+
+
+def test_rate_limited_strategy_in_supported_set():
+    """Layer 1: rate_limited must be in SUPPORTED_POOL_STRATEGIES.
+
+    Regression guard: this strategy was documented in AGENTS.md but absent
+    from code — silently falling back to fill_first.  If someone removes
+    it from SUPPORTED_POOL_STRATEGIES in the future, this test fails.
+    """
+    from agent.credential_pool import (
+        SUPPORTED_POOL_STRATEGIES, STRATEGY_RATE_LIMITED,
+    )
+    assert STRATEGY_RATE_LIMITED in SUPPORTED_POOL_STRATEGIES
+
+
+def test_rate_limited_strategy_round_robins_under_cap(tmp_path, monkeypatch):
+    """Layer 1: rate_limited picks least-used of under-cap keys.
+
+    With 3 keys under cap and RPM=10, the pool should distribute by
+    least-used — not always take the first (fill_first behaviour we're
+    replacing).  This is what realizes the combined daily quota ceiling.
+    """
+    import json
+    hermes_home = tmp_path / "hermes"
+    hermes_home.mkdir()
+    monkeypatch.setenv("HERMES_HOME", str(hermes_home))
+
+    config = {
+        "version": 33,
+        "credential_pool_strategies": {"nvidia": "rate_limited"},
+        "credential_pool_rpm_per_key": {"nvidia": 10},
+    }
+    (hermes_home / "config.yaml").write_text(
+        json.dumps(config)
+    )
+
+    _write_auth_store(
+        tmp_path,
+        {
+            "version": 1,
+            "credential_pool": {
+                "nvidia": [
+                    {
+                        "id": "k1", "label": "key 1", "auth_type": "api_key",
+                        "priority": 0, "source": "manual",
+                        "access_token": "nvapi-k1",
+                        "last_status": None,
+                    },
+                    {
+                        "id": "k2", "label": "key 2", "auth_type": "api_key",
+                        "priority": 0, "source": "manual",
+                        "access_token": "nvapi-k2",
+                        "last_status": None,
+                    },
+                    {
+                        "id": "k3", "label": "key 3", "auth_type": "api_key",
+                        "priority": 0, "source": "manual",
+                        "access_token": "nvapi-k3",
+                        "last_status": None,
+                    },
+                ]
+            },
+        },
+    )
+
+    from agent.credential_pool import load_pool
+    pool = load_pool("nvidia")
+
+    # First selection: least-used among the 3 → k1 (all tied at 0)
+    e1 = pool.select()
+    assert e1 is not None
+    assert e1.id == "k1"
+
+    # Second selection: should NOT be k1 again (k1 now has request_count=1)
+    e2 = pool.select()
+    assert e2 is not None
+    assert e2.id != e1.id, "rate_limited must spread, not fill_first"
+
+    # Third selection: another distinct key
+    e3 = pool.select()
+    assert e3 is not None
+    assert e3.id not in (e1.id, e2.id), "Three picks should hit three different keys"
+
+
+def test_rate_limited_returns_none_when_all_over_cap(tmp_path, monkeypatch):
+    """Layer 1: rate_limited returns None when every key is at RPM cap.
+
+    This is the signal for the caller to either retry with backoff or fall
+    through to fallback_providers.  Distinct from reactive exhaustion — the
+    proactive gate refuses to send traffic to a key that will 429.
+    """
+    import json
+    hermes_home = tmp_path / "hermes"
+    hermes_home.mkdir()
+    monkeypatch.setenv("HERMES_HOME", str(hermes_home))
+
+    config = {
+        "version": 33,
+        "credential_pool_strategies": {"nvidia": "rate_limited"},
+        "credential_pool_rpm_per_key": {"nvidia": 2},
+    }
+    (hermes_home / "config.yaml").write_text(json.dumps(config))
+
+    _write_auth_store(
+        tmp_path,
+        {
+            "version": 1,
+            "credential_pool": {
+                "nvidia": [
+                    {
+                        "id": "k1", "label": "key 1", "auth_type": "api_key",
+                        "priority": 0, "source": "manual",
+                        "access_token": "nvapi-k1",
+                        "last_status": None,
+                    },
+                    {
+                        "id": "k2", "label": "key 2", "auth_type": "api_key",
+                        "priority": 0, "source": "manual",
+                        "access_token": "nvapi-k2",
+                        "last_status": None,
+                    },
+                ]
+            },
+        },
+    )
+
+    from agent.credential_pool import load_pool
+    pool = load_pool("nvidia")
+
+    # Each key has RPM=2.  2 keys × 2 RPM = 4 calls allowed per minute.
+    e1 = pool.select(); assert e1 is not None
+    e2 = pool.select(); assert e2 is not None
+    e3 = pool.select(); assert e3 is not None
+    e4 = pool.select(); assert e4 is not None
+
+    # 5th call this minute → all keys at cap → None
+    e5 = pool.select()
+    assert e5 is None, "All keys at RPM cap must signal None (caller falls through)"
+
+
+def test_get_pool_strategy_warns_on_unknown(tmp_path, monkeypatch, caplog):
+    """Layer 1: unknown explicit strategy logs loudly, falls back to fill_first.
+
+    Verifies the fail-closed behaviour: instead of silently accepting a typo
+    or unimplemented strategy, the pool surfaces the misconfiguration so
+    operators can fix config.yaml.
+    """
+    import json, logging
+    hermes_home = tmp_path / "hermes"
+    hermes_home.mkdir()
+    monkeypatch.setenv("HERMES_HOME", str(hermes_home))
+
+    config = {
+        "version": 33,
+        "credential_pool_strategies": {"gemini": "nonexistent_strategy"},
+    }
+    (hermes_home / "config.yaml").write_text(json.dumps(config))
+
+    from agent.credential_pool import get_pool_strategy, STRATEGY_FILL_FIRST
+    with caplog.at_level(logging.WARNING):
+        strategy = get_pool_strategy("gemini")
+    assert strategy == STRATEGY_FILL_FIRST, "Unknown strategy falls back to fill_first (no crash)"
+    assert any(
+        "nonexistent_strategy" in rec.getMessage() and "SUPPORTED_POOL_STRATEGIES" in rec.getMessage()
+        for rec in caplog.records
+    ), "Unknown strategy must emit a WARNING log naming the misconfiguration"
+
+
+def test_exhausted_ttl_429_uses_provider_quota_window():
+    """Layer 2: 429 TTL honors the per-provider quota window.
+
+    nvidia 429 → 86400 (daily).  ollama-cloud 429 → 604800 (weekly).
+    Unknown provider 429 → 86400 (safe daily default).  401 still 300s
+    (genuinely transient — original short-TTL semantics preserved).
+    """
+    from agent.credential_pool import (
+        _exhausted_ttl, _provider_quota_window,
+        DEFAULT_QUOTA_WINDOW_SECONDS,
+    )
+    assert _exhausted_ttl(429, "nvidia") == 86400, "NVIDIA 429 → daily quota window"
+    assert _exhausted_ttl(429, "ollama-cloud") == 604800, "Ollama 429 → weekly"
+    assert _exhausted_ttl(429, "unknown_provider") == DEFAULT_QUOTA_WINDOW_SECONDS, (
+        "Unknown provider 429 → safe daily default"
+    )
+    assert _exhausted_ttl(401, "nvidia") == 300, "401 is transient auth — short TTL preserved"
+
+
+def test_quota_window_config_override(tmp_path, monkeypatch):
+    """Layer 2: config.yaml override beats the provider default.
+
+    credential_pool_quota_window_per_key.<provider> wins over
+    _PROVIDER_QUOTA_WINDOW_DEFAULTS[provider].  Tests the precedence chain.
+    """
+    import json
+    hermes_home = tmp_path / "hermes"
+    hermes_home.mkdir()
+    monkeypatch.setenv("HERMES_HOME", str(hermes_home))
+
+    config = {
+        "version": 33,
+        "credential_pool_quota_window_per_key": {"nvidia": 172800},  # 2 days
+    }
+    (hermes_home / "config.yaml").write_text(json.dumps(config))
+
+    from agent.credential_pool import _provider_quota_window
+    assert _provider_quota_window("nvidia") == 172800, "Config override beats default"
+
+
+def test_mark_ok_on_success_clears_exhausted(tmp_path, monkeypatch):
+    """Layer 3: 200 → mark_ok_on_success clears exhaustion state.
+
+    Proactive recovery signal — when real traffic proves the upstream window
+    rolled, this is the path that puts the key back in rotation faster than
+    waiting for last_error_reset_at to elapse.
+    """
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path / "hermes"))
+    now = time.time()
+    _write_auth_store(
+        tmp_path,
+        {
+            "version": 1,
+            "credential_pool": {
+                "openrouter": [
+                    {
+                        "id": "cred-1",
+                        "label": "primary",
+                        "auth_type": "api_key",
+                        "priority": 0,
+                        "source": "manual",
+                        "access_token": "sk-or-abc123",
+                        "last_status": "exhausted",
+                        "last_status_at": now - 100,
+                        "last_error_code": 429,
+                        "last_error_reason": "quota_exceeded",
+                        "last_error_message": "Daily quota exceeded",
+                    }
+                ]
+            },
+        },
+    )
+
+    from agent.credential_pool import load_pool
+    pool = load_pool("openrouter")
+
+    # Before: key is exhausted → select() returns None.
+    assert pool.select() is None
+
+    # Recovery: a 200 response proves the upstream window rolled.
+    pool.mark_ok_on_success(api_key_hint="sk-or-abc123")
+
+    # After: key is back in rotation → select() returns it.
+    entry = pool.select()
+    assert entry is not None
+    assert entry.id == "cred-1"
+    assert entry.last_status is None or entry.last_status == "ok"
+
+
+def test_reset_provider_keys_operator_path(tmp_path, monkeypatch):
+    """Layer 3: operator ``hermes pool reset`` clears all exhausted keys.
+
+    When the operator has confirmed the upstream window rolled (e.g. after
+    a manual API probe), this is the recovery path that doesn't require
+    a real 200 from the call path.
+    """
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path / "hermes"))
+    now = time.time()
+    _write_auth_store(
+        tmp_path,
+        {
+            "version": 1,
+            "credential_pool": {
+                "gemini": [
+                    {
+                        "id": "k1", "label": "key 1", "auth_type": "api_key",
+                        "priority": 0, "source": "manual",
+                        "access_token": "AQ-key1",
+                        "last_status": "exhausted",
+                        "last_status_at": now - 100,
+                        "last_error_code": 429,
+                    },
+                    {
+                        "id": "k2", "label": "key 2", "auth_type": "api_key",
+                        "priority": 0, "source": "manual",
+                        "access_token": "AQ-key2",
+                        "last_status": "exhausted",
+                        "last_status_at": now - 200,
+                        "last_error_code": 429,
+                    },
+                    {
+                        "id": "k3", "label": "key 3 (healthy)", "auth_type": "api_key",
+                        "priority": 0, "source": "manual",
+                        "access_token": "AQ-key3",
+                        "last_status": None,
+                    },
+                ]
+            },
+        },
+    )
+
+    from agent.credential_pool import load_pool
+    pool = load_pool("gemini")
+    assert pool.reset_provider_keys() == 2, "Clears 2 exhausted keys, leaves healthy key alone"
+    entries = {e.id: e for e in pool.entries()}
+    assert entries["k1"].last_status is None
+    assert entries["k2"].last_status is None
+    assert entries["k3"].last_status is None  # unchanged
+
+
+def test_reset_provider_keys_by_prefix(tmp_path, monkeypatch):
+    """Layer 3: prefix-scoped reset clears only matching exhausted keys."""
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path / "hermes"))
+    now = time.time()
+    _write_auth_store(
+        tmp_path,
+        {
+            "version": 1,
+            "credential_pool": {
+                "gemini": [
+                    {
+                        "id": "k1", "label": "key 1", "auth_type": "api_key",
+                        "priority": 0, "source": "manual",
+                        "access_token": "AQ-prefix-A",
+                        "last_status": "exhausted",
+                        "last_status_at": now - 100,
+                        "last_error_code": 429,
+                    },
+                    {
+                        "id": "k2", "label": "key 2", "auth_type": "api_key",
+                        "priority": 0, "source": "manual",
+                        "access_token": "AQ-prefix-B",
+                        "last_status": "exhausted",
+                        "last_status_at": now - 200,
+                        "last_error_code": 429,
+                    },
+                ]
+            },
+        },
+    )
+
+    from agent.credential_pool import load_pool
+    pool = load_pool("gemini")
+    n = pool.reset_provider_keys(api_key_prefix="AQ-prefix-A")
+    assert n == 1, "Only 1 matching key cleared"
+    entries = {e.id: e for e in pool.entries()}
+    assert entries["k1"].last_status is None
+    assert entries["k2"].last_status == "exhausted", "Non-matching exhausted key untouched"
+
+
+def test_shared_ledger_write_through_and_overlay(tmp_path, monkeypatch):
+    """Layer 4 (e2e): mark exhausted writes-through; next load overlays it.
+
+    Single HERMES_HOME, single auth.json.  The shared ledger lives at
+    ``<HERMES_HOME>/capacity/credential_exhaustion.json``.  After Step 1
+    writes-through, we simulate Step 2 by clearing the local entry and
+    calling ``load_pool()`` again (the same thing a second profile does on
+    its next load).
+    """
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path / "hermes"))
+
+    # Step 1 alpha-equivalent: create a fresh pool, mark one key exhausted.
+    _write_auth_store(
+        tmp_path,
+        {
+            "version": 1,
+            "credential_pool": {
+                "nvidia": [
+                    {
+                        "id": "k-shared",
+                        "label": "shared key",
+                        "auth_type": "api_key",
+                        "priority": 0,
+                        "source": "manual",
+                        "access_token": "nvapi-shared-key-abcdef",
+                        "last_status": None,
+                    }
+                ]
+            },
+        },
+    )
+    from agent.credential_pool import load_pool
+    pool_alpha = load_pool("nvidia")
+    entry = pool_alpha.entries()[0]
+    pool_alpha._mark_exhausted(entry, status_code=429)
+
+    # Verify the shared ledger got it
+    from agent.exhaustion_ledger import get_shared_exhaustion
+    shared = get_shared_exhaustion(
+        provider="nvidia", runtime_api_key="nvapi-shared-key-abcdef",
+    )
+    assert shared is not None, "alpha's _mark_exhausted must write-through to shared ledger"
+
+    # Step 2 beta-equivalent: simulate a different profile that has the same
+    # key but with status None — by resetting entry state on disk and reloading.
+    _write_auth_store(
+        tmp_path,
+        {
+            "version": 1,
+            "credential_pool": {
+                "nvidia": [
+                    {
+                        "id": "k-shared",
+                        "label": "shared key",
+                        "auth_type": "api_key",
+                        "priority": 0,
+                        "source": "manual",
+                        "access_token": "nvapi-shared-key-abcdef",
+                        "last_status": None,
+                    }
+                ]
+            },
+        },
+    )
+    pool_beta = load_pool("nvidia")
+    entry_beta = pool_beta.entries()[0]
+    assert entry_beta.last_status == "exhausted", (
+        "beta's pool must overlay the shared ledger state — without paying a 429 round-trip"
+    )
+    assert "shared-exhaustion" in (entry_beta.last_error_reason or "")
+
+
+def test_shared_ledger_clear_on_success(tmp_path, monkeypatch):
+    """Layer 4: mark_ok_on_success clears the shared ledger entry.
+
+    After alpha's 200 proves upstream recovery, mark_ok_on_success removes
+    the shared-state entry so beta stops treating the key as exhausted.
+    """
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path / "hermes"))
+
+    _write_auth_store(
+        tmp_path,
+        {
+            "version": 1,
+            "credential_pool": {
+                "openrouter": [
+                    {
+                        "id": "k1", "label": "key 1", "auth_type": "api_key",
+                        "priority": 0, "source": "manual",
+                        "access_token": "sk-or-marker-1",
+                        "last_status": "exhausted",
+                        "last_status_at": time.time() - 100,
+                        "last_error_code": 429,
+                    }
+                ]
+            },
+        },
+    )
+
+    from agent.credential_pool import load_pool
+    from agent.exhaustion_ledger import (
+        mark_exhausted_shared, get_shared_exhaustion,
+    )
+
+    # Prefill the shared ledger (simulating another profile marked it first)
+    mark_exhausted_shared(
+        provider="openrouter",
+        runtime_api_key="sk-or-marker-1",
+        reset_at=time.time() + 3600,
+        marked_by="other_profile",
+    )
+    assert get_shared_exhaustion(
+        provider="openrouter", runtime_api_key="sk-or-marker-1",
+    ) is not None
+
+    # Recovery via mark_ok_on_success
+    pool = load_pool("openrouter")
+    pool.mark_ok_on_success(api_key_hint="sk-or-marker-1")
+
+    # Shared ledger cleared
+    assert get_shared_exhaustion(
+        provider="openrouter", runtime_api_key="sk-or-marker-1",
+    ) is None, "200 success must clear the shared ledger entry"
+
+    # Local state also recovered
+    entry = pool.entries()[0]
+    assert entry.last_status is None or entry.last_status == "ok"
+
+
+def test_leadger_fingerprint_is_sha256_prefix_and_stable():
+    """Layer 4: fingerprint is reproducible & non-reversible.
+
+    Two profiles computing fingerprint for the same key must agree (so they
+    match the same ledger entry).  Plaintext key cannot be recovered from
+    the 16-char sha256 prefix.
+    """
+    from agent.exhaustion_ledger import fingerprint_key
+    fp1 = fingerprint_key("nvapi-some-secret-token-12345")
+    fp2 = fingerprint_key("nvapi-some-secret-token-12345")
+    fp3 = fingerprint_key("nvapi-different-token-67890")
+    assert fp1 == fp2, "Same key → same fingerprint (stable)"
+    assert fp1 != fp3, "Different keys → different fingerprints"
+    assert len(fp1) == 16, "16 hex chars = 64 bits of identification"
+    assert not fp1.startswith("nvapi"), "Fingerprint is NOT the raw key prefix"

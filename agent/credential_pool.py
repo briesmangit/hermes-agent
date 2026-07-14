@@ -99,11 +99,51 @@ STRATEGY_FILL_FIRST = "fill_first"
 STRATEGY_ROUND_ROBIN = "round_robin"
 STRATEGY_RANDOM = "random"
 STRATEGY_LEAST_USED = "least_used"
+
+# Proactive rate-limit strategy: each key is capped at ``credential_pool_rpm_per_key``
+# requests/min and ``credential_pool_tpm_per_key`` tokens/min (config).  When all
+# keys are under their caps, falls back to STRATEGY_LEAST_USED semantics to spread
+# load across the pool and realize the combined daily quota ceiling.  Distinct from
+# reactive 429 handling; both can coexist (rate_limited = proactive, mark_exhausted
+# = reactive).
+#
+# Implementation: see ``_is_within_rate_budget`` and ``_select_unlocked``.
+STRATEGY_RATE_LIMITED = "rate_limited"
+
 SUPPORTED_POOL_STRATEGIES = {
     STRATEGY_FILL_FIRST,
     STRATEGY_ROUND_ROBIN,
     STRATEGY_RANDOM,
     STRATEGY_LEAST_USED,
+    STRATEGY_RATE_LIMITED,
+}
+
+# ── Quota-window TTL defaults ────────────────────────────────────────────
+# When a 429 arrives with no provider ``reset_at`` signal (no ``Retry-After``,
+# no ``X-RateLimit-Reset``), the pool must not assume the key recovers in 1h —
+# that causes daily/weekly quota keys to re-enter rotation every hour and
+# re-429 forever (the "exhausted keys still handed out" symptom).
+#
+# Per-provider overrides come from config.yaml
+# ``credential_pool_quota_window_per_key.<provider>``.  These are the
+# defaults if the key lacks any ``reset_at`` and no override is configured.
+#
+# ollama-cloud Pro plan rolls weekly.
+#          free keys roll weekly as well (per the upstream window).
+# nvidia NIM free tier is daily (observed: 429 returns no headers).
+# gemini/oai free tier is daily (per docs).
+# kilocode daily.
+# Default daily (86400) is the safe assumption for undocumented 429s.
+DEFAULT_QUOTA_WINDOW_SECONDS = 86400          # 1 day, fallback for unknown 429s
+_PROVIDER_QUOTA_WINDOW_DEFAULTS = {
+    "ollama-cloud": 604800,    # 1 week
+    "nvidia": 86400,           # 1 day
+    "gemini": 86400,           # 1 day
+    "kilocode": 86400,         # 1 day
+    "openrouter": 86400,       # 1 day
+    "cerebras": 86400,
+    "groq": 86400,
+    "mistral": 86400,
 }
 
 # Cooldown before retrying an exhausted credential.
@@ -248,13 +288,55 @@ def _is_manual_source(source: str) -> bool:
     return normalized == SOURCE_MANUAL or normalized.startswith(f"{SOURCE_MANUAL}:")
 
 
-def _exhausted_ttl(error_code: Optional[int]) -> int:
-    """Return cooldown seconds based on the HTTP status that caused exhaustion."""
+def _exhausted_ttl(error_code: Optional[int], provider: Optional[str] = None) -> int:
+    """Return cooldown seconds based on the HTTP status that caused exhaustion.
+
+    Honors provider-specific quota windows for 429s that lack an explicit
+    ``reset_at`` signal: a daily-quota NVIDIA NIM key that 429s with no
+    ``Retry-After`` header should cool down for a day, not an hour.  Falling
+    back to 1h for daily/weekly quotas is the root cause of the
+    'exhausted keys still handed out every hour' production symptom.
+
+    Args:
+        error_code: HTTP status that triggered exhaustion.
+        provider: Pool provider (e.g. 'ollama-cloud', 'nvidia').  Used to
+            look up the quota window when the 429 carries no provider
+            ``reset_at`` signal.  None defaults to ``DEFAULT_QUOTA_WINDOW_SECONDS``.
+
+    Layer 2: provider quota windows live in ``_PROVIDER_QUOTA_WINDOW_DEFAULTS``
+    and can be overridden via ``credential_pool_quota_window_per_key`` in
+    config.yaml.  ``_load_config_safe`` is the same loader used elsewhere.
+    """
     if error_code == 401:
+        # Auth failures are genuinely transient — short cooldown is correct.
         return EXHAUSTED_TTL_401_SECONDS
     if error_code == 429:
-        return EXHAUSTED_TTL_429_SECONDS
+        # Provider quota window by config override, else by provider default,
+        # else the conservative daily fallback.  Never the legacy 1h.
+        window = _provider_quota_window(provider)
+        return window
     return EXHAUSTED_TTL_DEFAULT_SECONDS
+
+
+def _provider_quota_window(provider: Optional[str]) -> int:
+    """Resolve the quota-window TTL for a 429 with no provider ``reset_at``.
+
+    Precedence: ``config.credential_pool_quota_window_per_key.<provider>`` →
+    ``_PROVIDER_QUOTA_WINDOW_DEFAULTS[provider]`` →
+    ``DEFAULT_QUOTA_WINDOW_SECONDS``.
+    """
+    if provider:
+        cfg = _load_config_safe()
+        if cfg is not None:
+            overrides = cfg.get("credential_pool_quota_window_per_key")
+            if isinstance(overrides, dict):
+                v = overrides.get(provider)
+                if isinstance(v, int) and v > 0:
+                    return v
+        default = _PROVIDER_QUOTA_WINDOW_DEFAULTS.get(provider)
+        if isinstance(default, int) and default > 0:
+            return default
+    return DEFAULT_QUOTA_WINDOW_SECONDS
 
 
 def _parse_absolute_timestamp(value: Any) -> Optional[float]:
@@ -342,7 +424,7 @@ def _exhausted_until(entry: PooledCredential) -> Optional[float]:
     if reset_at is not None:
         return reset_at
     if entry.last_status_at:
-        return entry.last_status_at + _exhausted_ttl(entry.last_error_code)
+        return entry.last_status_at + _exhausted_ttl(entry.last_error_code, entry.provider)
     return None
 
 
@@ -430,7 +512,20 @@ def _get_custom_provider_config(pool_key: str) -> Optional[Dict[str, Any]]:
 
 
 def get_pool_strategy(provider: str) -> str:
-    """Return the configured selection strategy for a provider."""
+    """Return the configured selection strategy for a provider.
+
+    Layer 1: fail-closed on ``explicit but unsupported`` strategies.  Previously
+    any unknown value (including ``rate_limited`` before Layer 1 landed) silently
+    fell through to ``fill_first`` — so misconfigurations and unimplemented
+    strategies (the documented-but-vapor ``rate_limited`` from AGENTS.md) were
+    invisible and every pool quietly hammered key #1.  Now we log loudly and
+    surface the misconfig via ``pool status``, but still fall back to
+    ``fill_first`` so we don't hard-crash a running agent.  Callers that want
+    strict behavior can check ``SUPPORTED_POOL_STRATEGIES`` directly.
+
+    Empty/missing strategy config still falls through to ``fill_first`` silently
+    — that's the documented default, not a misconfiguration.
+    """
     config = _load_config_safe()
     if config is None:
         return STRATEGY_FILL_FIRST
@@ -439,9 +534,21 @@ def get_pool_strategy(provider: str) -> str:
     if not isinstance(strategies, dict):
         return STRATEGY_FILL_FIRST
 
-    strategy = str(strategies.get(provider, "") or "").strip().lower()
+    raw = strategies.get(provider)
+    if raw is None or str(raw).strip() == "":
+        return STRATEGY_FILL_FIRST
+
+    strategy = str(raw).strip().lower()
     if strategy in SUPPORTED_POOL_STRATEGIES:
         return strategy
+
+    # Explicit-but-unsupported strategy: surface loudly so it gets fixed,
+    # fall back to fill_first so the agent keeps running.
+    logger.warning(
+        "credential_pool_strategies.%s = %r is not in SUPPORTED_POOL_STRATEGIES=%s; "
+        "falling back to %s.  Fix config.yaml or upgrade hermes-agent to support it.",
+        provider, raw, sorted(SUPPORTED_POOL_STRATEGIES), STRATEGY_FILL_FIRST,
+    )
     return STRATEGY_FILL_FIRST
 
 
@@ -552,6 +659,12 @@ class CredentialPool:
         self._lock = threading.Lock()
         self._active_leases: Dict[str, int] = {}
         self._max_concurrent = DEFAULT_MAX_CONCURRENT_PER_CREDENTIAL
+        # Layer 1: per-minute rolling request counts for rate_limited strategy.
+        # Keyed by entry_id; cleared when the minute window rolls.  In-memory
+        # only — we don't persist rate-window state because it's per-process
+        # and re-converges within 60s of fresh traffic.
+        self._rate_window_start: float = 0.0
+        self._rate_use_counts: Dict[str, int] = {}
 
     def has_credentials(self) -> bool:
         return bool(self._entries)
@@ -634,7 +747,43 @@ class CredentialPool:
         )
         self._replace_entry(entry, updated)
         self._persist()
+        # Layer 4: cross-profile exhaustion ledger.  Write-through so other
+        # profiles' pools align on the same key without each paying a 429
+        # round-trip to rediscover what we already learned.  DEAD entries
+        # are also broadcast — a revoked key is revoked for every profile.
+        if terminal_status in (STATUS_EXHAUSTED, STATUS_DEAD):
+            try:
+                from agent.exhaustion_ledger import mark_exhausted_shared
+                # Compute the effective reset_at: real provider signal if
+                # present, else the Layer 2 quota-window TTL fallback.  Both
+                # are useful for readers (they know when to attempt recovery).
+                reset_at = normalized_error.get("reset_at")
+                if reset_at is None and terminal_status == STATUS_EXHAUSTED:
+                    ttl = _exhausted_ttl(status_code, self.provider)
+                    reset_at = time.time() + ttl
+                marked_by = self._profile_name_for_ledger()
+                mark_exhausted_shared(
+                    provider=self.provider,
+                    runtime_api_key=entry.runtime_api_key or entry.access_token or "",
+                    reset_at=reset_at,
+                    marked_by=marked_by,
+                )
+            except Exception as exc:
+                logger.debug("exhaustion_ledger write-through failed: %s", exc)
         return updated
+
+    def _profile_name_for_ledger(self) -> str:
+        """Best-effort profile identifier for the shared ledger's marked_by field."""
+        try:
+            home = os.environ.get("HERMES_HOME") or str(Path.home() / ".hermes")
+            # /home/x/.hermes/profiles/alpha → alpha
+            m = re.search(r"/profiles/([^/]+)", home)
+            if m:
+                return m.group(1)
+        except Exception:
+            pass
+        return "unknown"
+
 
     def _sync_anthropic_entry_from_credentials_file(self, entry: PooledCredential) -> PooledCredential:
         """Sync a claude_code pool entry from ~/.claude/.credentials.json if tokens differ.
@@ -1493,7 +1642,42 @@ class CredentialPool:
                 exhausted_until = _exhausted_until(entry)
                 if exhausted_until is not None and now < exhausted_until:
                     continue
-                if clear_expired:
+                # Layer 3: do NOT auto-clear drained QUOTA keys on TTL alone.
+                #
+                # Previously: any key past its cooldown got reset to STATUS_OK
+                # and put back in rotation.  For keys with no provider
+                # ``reset_at`` signal (NVIDIA NIM 429s, Ollama Pro weekly,
+                # most 429s without ``Retry-After``), "TTL elapsed" does NOT
+                # mean the upstream quota rolled — it just means we waited.
+                # Re-using such a key is guaranteed to 429 again, costing a
+                # round-trip to rediscover what we already knew, and on heavy
+                # load costs the same round-trip across 9 profiles = 9 wasted
+                # requests every TTL cycle.
+                #
+                # New rule: only auto-clear when EITHER:
+                #   * the exhaustion was quota-based (429, 402, or other
+                #     non-401) AND a real ``last_error_reset_at`` signal is
+                #     present AND ``now >= reset_at``; OR
+                #   * the exhaustion was a transient 401 (auth) — 401s are
+                #     genuinely transient and the original short-TTL recovery
+                #     semantic stays intact so single-key setups don't strand.
+                #
+                # Quota keys without a reset signal stay ``exhausted`` until
+                # a 200 response proves recovery (handled in the call path via
+                # ``mark_ok_on_success``) or the operator issues
+                # ``hermes pool reset --provider X``.
+                is_transient_auth = entry.last_error_code == 401
+                reset_at = getattr(entry, "last_error_reset_at", None)
+                parsed_reset_at = _parse_absolute_timestamp(reset_at) if reset_at else None
+                should_clear = False
+                if is_transient_auth:
+                    # 401: original short-TTL recovery semantics preserved.
+                    should_clear = clear_expired
+                elif parsed_reset_at is not None and now >= parsed_reset_at:
+                    # Quota + real reset_at elapsed → legitimate recovery.
+                    should_clear = clear_expired
+                # else: quota-key with no reset signal → stays exhausted.
+                if should_clear:
                     cleared = replace(
                         entry,
                         last_status=STATUS_OK,
@@ -1506,6 +1690,13 @@ class CredentialPool:
                     self._replace_entry(entry, cleared)
                     entry = cleared
                     cleared_any = True
+                else:
+                    # Quota-key with no reset signal → stays out of rotation.
+                    # Do NOT append to available — the upstream window hasn't
+                    # demonstrably rolled, so handing out this key is guaranteed
+                    # to 429/402 again.  Recovery requires a real signal:
+                    # mark_ok_on_success (200 from this key) or operator reset.
+                    continue
             if refresh and self._entry_needs_refresh(entry):
                 refreshed = self._refresh_entry(entry, force=False)
                 if refreshed is None:
@@ -1519,12 +1710,83 @@ class CredentialPool:
             self._persist(removed_ids=entries_to_prune)
         return available
 
+    # ── Layer 1: rate_limited helpers ─────────────────────────────────────
+    def _rate_rpm_cap(self) -> int:
+        """Per-key RPM cap from config; 0 = disabled (reactive only)."""
+        cfg = _load_config_safe()
+        if cfg is None:
+            return 0
+        per_key = cfg.get("credential_pool_rpm_per_key")
+        if not isinstance(per_key, dict):
+            return 0
+        v = per_key.get(self.provider)
+        if isinstance(v, int) and v > 0:
+            return v
+        return 0
+
+    def _maybe_roll_rate_window(self, now: float) -> None:
+        """Clear rolling request counts when the minute window rolls."""
+        window = int(now // 60) * 60
+        if window != int(self._rate_window_start // 60) * 60:
+            self._rate_use_counts.clear()
+            self._rate_window_start = window
+
+    def _record_rate_use(self, entry_id: str) -> None:
+        """Increment this key's request count for the current minute."""
+        now = time.time()
+        self._maybe_roll_rate_window(now)
+        self._rate_use_counts[entry_id] = self._rate_use_counts.get(entry_id, 0) + 1
+
+    def _within_rate_budget(self, entry: PooledCredential) -> bool:
+        """True if this key is under its configured RPM cap for this minute.
+
+        When ``credential_pool_rpm_per_key.<provider>`` is unset or 0, every
+        key is considered within budget (reactive-only — falls back to
+        pure least_used spread without proactive throttling).  This preserves
+        backward compatibility when config doesn't enable the proactive gate.
+        """
+        cap = self._rate_rpm_cap()
+        if cap <= 0:
+            return True
+        now = time.time()
+        self._maybe_roll_rate_window(now)
+        used = self._rate_use_counts.get(entry.id, 0)
+        return used < cap
+
     def _select_unlocked(self) -> Optional[PooledCredential]:
         available = self._available_entries(clear_expired=True, refresh=True)
         if not available:
             self._current_id = None
             logger.info("credential pool: no available entries (all exhausted or empty)")
             return None
+
+        if self._strategy == STRATEGY_RATE_LIMITED:
+            # Layer 1: proactive per-key RPM/TPM gate.  When all keys are
+            # under their configured rate caps, fall back to least_used
+            # so we *spread* load across the pool — this is what realizes
+            # the combined daily ceiling (e.g. 7 NVIDIA keys × 10 RPM = 70 RPM
+            # vs the fill_first behavior of burning key #1's 10 RPM then
+            # 429-ing).  When all keys are at/over their caps, return None
+            # (caller falls to fallback provider) — but only if all are
+            # genuinely capped.  When some are under cap, pick the least-used
+            # key among the under-cap set.
+            candidates = [e for e in available if self._within_rate_budget(e)]
+            if not candidates:
+                # Every available key is rate-capped for the current minute.
+                # Caller should retry with backoff or fall to fallback_providers.
+                self._current_id = None
+                logger.info(
+                    "credential pool: all available %s keys over rate cap for this minute",
+                    self.provider,
+                )
+                return None
+            entry = min(candidates, key=lambda e: e.request_count)
+            # Increment counter for load-spread decisions in subsequent calls.
+            updated = replace(entry, request_count=entry.request_count + 1)
+            self._replace_entry(entry, updated)
+            self._current_id = entry.id
+            self._record_rate_use(entry.id)
+            return updated
 
         if self._strategy == STRATEGY_RANDOM:
             entry = random.choice(available)
@@ -1681,6 +1943,116 @@ class CredentialPool:
             self._entries = new_entries
             self._persist()
         return count
+
+    def mark_ok_on_success(
+        self, *, api_key_hint: Optional[str] = None
+    ) -> None:
+        """Clear exhaustion state for the key that just produced a 200.
+
+        Layer 3 recovery signal: when the call path observes a successful
+        response from ``api_key_hint`` (the actual key used), that key has
+        definitively recovered its upstream quota window.  We clear its
+        ``last_status`` / ``last_error_*`` so it re-enters rotation
+        immediately, rather than waiting for an operator ``hermes pool reset``
+        or for a rarely-present ``reset_at`` to elapse.
+
+        Safe when the key wasn't exhausted — the replace is idempotent.
+        Called from the success path of auxiliary + main client so 'the call
+        worked' is the recovery signal, ending the no-auto-clear tradeoff
+        described in ``_available_entries`` Layer 3.
+
+        Args:
+            api_key_hint: The runtime_api_key that actually served the 200.
+                If None, falls back to the pool's current() entry.  Best
+                practice is to pass the hint so a load_pool-between-calls
+                race (current_id cleared) doesn't target the wrong entry.
+        """
+        with self._lock:
+            entry = None
+            if api_key_hint:
+                entry = next(
+                    (e for e in self._entries if e.runtime_api_key == api_key_hint),
+                    None,
+                )
+            if entry is None:
+                entry = self.current()
+            if entry is None:
+                return
+            if entry.last_status in (STATUS_EXHAUSTED, STATUS_DEAD):
+                updated = replace(
+                    entry,
+                    last_status=None,
+                    last_status_at=None,
+                    last_error_code=None,
+                    last_error_reason=None,
+                    last_error_message=None,
+                    last_error_reset_at=None,
+                )
+                self._replace_entry(entry, updated)
+                self._persist()
+                logger.debug(
+                    "credential pool: marked %s ok on 200 (quota window recovered)",
+                    entry.label or entry.id[:8],
+                )
+                # Layer 4: clear the shared ledger entry so other profiles
+                # stop treating this key as cross-profile-exhausted.  Without
+                # this, a 200 in alpha leaves beta's pool treating the key as
+                # exhausted forever — defeating the cross-profile coordination.
+                try:
+                    from agent.exhaustion_ledger import clear_exhausted_shared
+                    clear_exhausted_shared(
+                        provider=self.provider,
+                        runtime_api_key=entry.runtime_api_key or entry.access_token or "",
+                    )
+                except Exception as exc:
+                    logger.debug("exhaustion_ledger clear-on-success failed: %s", exc)
+
+    def reset_provider_keys(self, *, api_key_prefix: Optional[str] = None) -> int:
+        """Operator-triggered recovery for keys frozen without a ``reset_at``.
+
+        The Layer 3 no-auto-clear rule means key that 429'd with no upstream
+        ``Retry-After`` signal stay ``exhausted`` until proven recovered.  When
+        the operator has confirmed (e.g. via a manual API probe) that the
+        upstream daily/weekly window rolled, they issue this reset to put the
+        affected keys back into rotation.  Wires to ``hermes pool reset``.
+
+        Args:
+            api_key_prefix: If given, only keys whose ``access_token`` starts
+                with this prefix are reset.  None resets all keys for this
+                pool's provider.
+
+        Returns: number of keys cleared.
+        """
+        with self._lock:
+            count = 0
+            new_entries = []
+            for entry in self._entries:
+                if entry.last_status in (STATUS_EXHAUSTED, STATUS_DEAD):
+                    if api_key_prefix is None or (
+                        entry.access_token and entry.access_token.startswith(api_key_prefix)
+                    ):
+                        new_entries.append(
+                            replace(
+                                entry,
+                                last_status=None,
+                                last_status_at=None,
+                                last_error_code=None,
+                                last_error_reason=None,
+                                last_error_message=None,
+                                last_error_reset_at=None,
+                            )
+                        )
+                        count += 1
+                        continue
+                new_entries.append(entry)
+            if count:
+                self._entries = new_entries
+                self._persist()
+                logger.info(
+                    "credential pool: operator reset cleared %d keys (provider=%s, prefix=%s)",
+                    count, self.provider, api_key_prefix or "(all)",
+                )
+            return count
 
     def remove_index(self, index: int) -> Optional[PooledCredential]:
         if index < 1 or index > len(self._entries):
@@ -2419,4 +2791,80 @@ def load_pool(provider: str) -> CredentialPool:
             [entry.to_dict() for entry in sorted(entries, key=lambda item: item.priority)],
             removed_ids=disk_ids - new_ids,
         )
+
+    # Layer 4: overlay shared exhaustion state from the cross-profile ledger.
+    # When another profile learned this key is exhausted for the upstream's
+    # quota window, our local pool's view of the same key must align — we
+    # don't get to be the profile that pays a 429 round-trip to rediscover it.
+    # Only overlays entries whose current state is non-exhausted; a local
+    # exhausted/DEAD entry already has at least the same information.
+    overlay = _apply_shared_ledger_overlay(provider, entries)
+    if overlay:
+        write_credential_pool(
+            provider,
+            [entry.to_dict() for entry in sorted(entries, key=lambda item: item.priority)],
+        )
+
     return CredentialPool(provider, entries)
+
+
+def _apply_shared_ledger_overlay(provider: str, entries: List[PooledCredential]) -> bool:
+    """Apply shared exhaustion state to local entries; return True if mutated.
+
+    For each local entry whose key fingerprint matches a (provider, fingerprint)
+    marked exhausted in the shared ledger, AND whose ``last_status`` is not
+    already exhausted/dead, AND whose own ``last_error_reset_at`` is older /
+    absent compared to the ledger's ``reset_at`` (i.e., the ledger learned
+    something newer), update the local entry to STATUS_EXHAUSTED with the
+    ledger's reset_at.
+
+    This is an *overlay* — it only ever adds exhaustion state, never removes
+    it, and never overrides a more-advanced local state (DEAD stays DEAD,
+    locally-exhausted-with-newer-reset stays untouched).
+    """
+    try:
+        from agent.exhaustion_ledger import (
+            fingerprint_key,
+            get_shared_exhaustion,
+        )
+    except Exception:
+        return False
+
+    mutated = False
+    for entry in entries:
+        if entry.last_status in (STATUS_EXHAUSTED, STATUS_DEAD):
+            # Already knows.  Let the local source-of-truth govern.
+            continue
+        key = entry.runtime_api_key or entry.access_token or ""
+        if not key:
+            continue
+        shared = get_shared_exhaustion(provider=provider, runtime_api_key=key)
+        if not shared:
+            continue
+        shared_reset = shared.get("reset_at")
+        # Overlay only if the ledger has a reset signal equal-or-newer than
+        # the local entry's own last_error_reset_at.  When the local key has
+        # never seen an error, last_error_reset_at is None, which always
+        # loses to a real ledger entry.
+        local_reset = entry.last_error_reset_at
+        if local_reset is None or (
+            isinstance(shared_reset, (int, float))
+            and isinstance(local_reset, (int, float))
+            and shared_reset >= local_reset
+        ) or (shared_reset is None and local_reset is None):
+            updated = replace(
+                entry,
+                last_status=STATUS_EXHAUSTED,
+                last_status_at=time.time(),
+                last_error_code=429,   # preserved as 429 — approximate when source is shared
+                last_error_reason=f"shared-exhaustion by {shared.get('marked_by', 'other')}",
+                last_error_message="Cross-profile exhaustion ledger reports this key as exhausted upstream",
+                last_error_reset_at=shared_reset,
+            )
+            entries[entries.index(entry)] = updated
+            mutated = True
+            logger.info(
+                "credential pool: %s overlay exhausted from shared ledger (reset_at=%s)",
+                entry.label or entry.id[:8], shared_reset,
+            )
+    return mutated

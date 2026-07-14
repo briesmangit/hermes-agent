@@ -66,6 +66,17 @@ class CapacityPlane:
                     scores = self.all_scores()
                     self.persistence.save(scores)
                     self._last_save = now
+                # Layer 4: prune stale entries from the cross-profile
+                # exhaustion ledger.  Entries whose reset_at has demonstrably
+                # elapsed get dropped so the ledger doesn't accumulate
+                # forever and so other profiles stop honoring stale exhaustion
+                # state.  Cadence matches capacity_plane recompute (30s).
+                if int(now) % 60 < interval:
+                    try:
+                        from agent.exhaustion_ledger import clear_stale_shared_ledger
+                        clear_stale_shared_ledger(now=now)
+                    except Exception:
+                        pass
             except Exception as e:
                 _log.warning("capacity_plane loop error: %s", e)
             self._stop.wait(interval)
