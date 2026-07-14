@@ -1,13 +1,14 @@
 import { useStore } from '@nanostores/react'
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import type * as React from 'react'
 
 import { SidebarPanelLabel } from '@/app/shell/sidebar-label'
 import { DisclosureCaret } from '@/components/ui/disclosure-caret'
 import { SidebarGroup, SidebarGroupContent } from '@/components/ui/sidebar'
+import type { SessionInfo } from '@/hermes'
 import { useI18n } from '@/i18n'
 import { cn } from '@/lib/utils'
-import { $completedSessionIds, $sessions, completedSecondsRemaining, pruneCompletedSessions } from '@/store/session'
+import { $allProfileSessions, $completedSessionIds, $sessions, completedSecondsRemaining, pruneCompletedSessions } from '@/store/session'
 
 import { SidebarCount } from './chrome'
 import { SidebarSessionRow } from './session-row'
@@ -16,8 +17,10 @@ function formatCountdown(seconds: number): string {
   if (seconds <= 0) {
     return ''
   }
+
   const m = Math.floor(seconds / 60)
   const s = seconds % 60
+
   return `${m}:${s.toString().padStart(2, '0')}`
 }
 
@@ -40,7 +43,27 @@ export function CompletedSection({
   const s = t.sidebar
   const completedSessionIds = useStore($completedSessionIds)
   const allSessions = useStore($sessions)
-  const completedSessions = allSessions.filter(session => completedSessionIds.includes(session.id))
+  const allProfileSessions = useStore($allProfileSessions)
+
+  // Prefer the active-scope $sessions (accurate countdowns via completedSessionExpiry);
+  // fall back to the cross-profile mirror so other profiles' completed sessions
+  // are visible even when their session objects aren't in the scoped list.
+  const sessionById = useMemo(() => {
+    const map = new Map<string, SessionInfo>()
+
+    for (const s of allSessions) {map.set(s.id, s)}
+
+    for (const s of allProfileSessions) {
+      if (!map.has(s.id)) {map.set(s.id, s)}
+    }
+
+    return map
+  }, [allSessions, allProfileSessions])
+
+  const completedSessions = completedSessionIds
+    .map(id => sessionById.get(id))
+    .filter((s): s is SessionInfo => Boolean(s))
+
   const completedCount = completedSessions.length
 
   // Live countdown tick (1 s) — drives per-row "mm:ss" re-render.
@@ -49,7 +72,9 @@ export function CompletedSection({
     if (completedCount === 0) {
       return
     }
+
     const id = setInterval(() => setTick(t => t + 1), 1000)
+
     return () => clearInterval(id)
   }, [completedCount])
 
@@ -58,9 +83,11 @@ export function CompletedSection({
     if (completedCount === 0) {
       return
     }
+
     const id = setInterval(() => {
       pruneCompletedSessions()
     }, 1000)
+
     return () => clearInterval(id)
   }, [completedCount])
 
@@ -96,6 +123,7 @@ export function CompletedSection({
         <SidebarGroupContent className={contentClassName}>
           {completedSessions.map(session => {
             const remainingSec = completedSecondsRemaining(session.id)
+
             return (
               <SidebarSessionRow
                 isPinned={false}
