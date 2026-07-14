@@ -100,7 +100,7 @@ function SwitcherDot({ attention, working }: { attention: boolean; working: bool
     <span
       className={cn(
         'size-1 shrink-0 rounded-full',
-        attention ? 'bg-amber-400' : working ? 'animate-pulse bg-(--ui-accent)' : 'bg-(--ui-text-quaternary)/50'
+        attention ? 'bg-amber-400' : working ? 'bg-(--ui-accent) shadow-[0_0_0.5rem_color-mix(in_srgb,var(--ui-accent)_50%,transparent)]' : 'bg-(--ui-text-quaternary)/50'
       )}
     />
   )
