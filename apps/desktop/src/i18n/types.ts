@@ -1271,6 +1271,14 @@ export interface Translations {
     needsInput: string
     attention: string
     completed: string
+    // Sunset triage: a session you're done working but not ready to archive.
+    sunset: string
+    markSunset: string
+    clearSunset: string
+    sunsetSection: string
+    showSunset: string
+    // Cross-profile overview: working/completed/pinned across every profile.
+    allActivity: string
     cronJobs: string
     groupAriaGrouped: string
     groupAriaUngrouped: string

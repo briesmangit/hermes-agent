@@ -19,6 +19,7 @@ import {
   getRecentlySettledSessionIds,
   mergeSessionPage,
   MESSAGING_SECTION_LIMIT,
+  setAllProfileSessions,
   setCronSessions,
   setMessagingPlatformTotals,
   setMessagingSessions,
@@ -187,6 +188,21 @@ export function useSessionListActions({ profileScope }: UseSessionListActionsArg
         setSessionsLoading(false)
       }
     }
+
+    // Mirror the ALL-profiles aggregator into its own store so the "All
+    // Activity" overview section can show every profile's working/completed/
+    // pinned sessions regardless of the sidebar's current scope. This is the
+    // fix for "switched to beta, now alpha's completion is invisible" — the
+    // scoped $sessions list is wiped on gateway switch, but this snapshot is
+    // always full. Kept independent (separate request token) and non-fatal:
+    // the overview just falls back to its last-known state on failure.
+    void listAllProfileSessions(300, 1, 'exclude', 'recent', 'all', {
+      excludeSources: SIDEBAR_EXCLUDED_SOURCES
+    })
+      .then(result => {
+        setAllProfileSessions(result.sessions)
+      })
+      .catch(() => undefined)
 
     void refreshCronSessions()
     void refreshCronJobs()
