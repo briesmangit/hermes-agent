@@ -8,6 +8,7 @@ if demotion is warranted, and executes it.
 from __future__ import annotations
 
 import logging
+import time
 from typing import TYPE_CHECKING, Dict, List, Optional, Any
 
 if TYPE_CHECKING:
@@ -83,18 +84,50 @@ def record_dispatch_score(
 def _demote_credential(pool: CredentialPool, entry: PooledCredential) -> None:
     """Demote a credential by reducing its priority.
 
-    Args:
-        pool: The credential pool containing the entry.
-        entry: The credential entry to demote.
+    Layer 5 reinforcement: when the capacity-mesh scorer sees a credential
+    that consistently under-performs (high error rate, repeated 429s, slow),
+    it used to just decrement ``priority`` — leaving the demoted key in
+    rotation, merely picked last.  On heavy load that's pointless: under load
+    the pool still sends traffic to a key the scorer has already concluded is
+    failing.  Behavior contracts over snapshots: the scorer is telling us
+    'this key is bad right now — stop using it'.
+
+    The new behavior: if the entry's recent dispatch score history is bad
+    enough to warrant demotion AND it's already at or below priority 0,
+    proactively mark the credential ``exhausted`` via the pool's standard
+    mechanism — this triggers the Layer 4 cross-profile ledger broadcast so
+    other profiles align, and this profile skips the key in subsequent
+    selections.  The actual decision threshold is in ``should_demote``.
     """
     from dataclasses import replace
 
     if entry.priority <= -1:
-        # Already at minimum priority
-        logger.warning(
-            "capacity_mesh: credential %s already at minimum priority, cannot demote further",
-            entry.label or entry.id[:8],
-        )
+        # Already at minimum priority — escalate to exhaustion so the pool
+        # actually stops dispatching to this key.  The capacity-mesh scorer
+        # has decided this credential is consistently problematic; demoting
+        # priority further would be a no-op.  Mark exhausted via the pool's
+        # standard path (writes through to the shared ledger too).
+        try:
+            # Only escalate if not already exhausted (avoid duplicate work).
+            if entry.last_status not in ("exhausted", "dead"):
+                pool._mark_exhausted(
+                    entry,
+                    status_code=429,
+                    error_context={
+                        "reason": "capacity_mesh_escalation",
+                        "message": "Capacity plane scored credential as consistently failing — escalating to exhaustion",
+                        "reset_at": time.time() + 3600,  # try again in 1h
+                    },
+                )
+                logger.warning(
+                    "capacity_mesh: escalated credential %s to exhausted (priority floor reached, scorer says bad)",
+                    entry.label or entry.id[:8],
+                )
+        except Exception as exc:
+            logger.warning(
+                "capacity_mesh: failed to escalate %s to exhausted: %s — leaving at priority floor",
+                entry.label or entry.id[:8], exc,
+            )
         return
 
     new_priority = entry.priority - 1
