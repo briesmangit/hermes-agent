@@ -1277,8 +1277,9 @@ export interface Translations {
     clearSunset: string
     sunsetSection: string
     showSunset: string
-    // Cross-profile overview: working/completed/pinned across every profile.
-    allActivity: string
+    // Cross-profile overview: working/completed/pinned across every OTHER profile.
+    // Hidden in ALL_PROFILES view (where the unified All Activity tab takes over).
+    otherAgents: string
     cronJobs: string
     groupAriaGrouped: string
     groupAriaUngrouped: string
