@@ -134,6 +134,9 @@ interface SidebarSessionsSectionProps {
   onReorderProjects?: (ids: string[]) => void
   // Map of session id → sequential number (when numbering enabled)
   sessionNumbers?: Map<string, number>
+  // Sunset-triaged ids (done but not archived); rows matching are dimmed.
+  sunsetIdSet?: ReadonlySet<string>
+  onToggleSunset?: (sessionId: string) => void
   // Rendered atop the entered-project body (a "back to overview" row).
   projectBackRow?: React.ReactNode
   dndSensors?: ReturnType<typeof useSensors>
@@ -177,6 +180,8 @@ export function SidebarSessionsSection({
   onReorderProjects,
   sessionNumbers,
   projectBackRow,
+  sunsetIdSet,
+  onToggleSunset,
   dndSensors
 }: SidebarSessionsSectionProps) {
   const sectionOpen = collapsible ? open : true
@@ -199,6 +204,7 @@ export function SidebarSessionsSection({
       branchStem,
       isPinned: pinned,
       isSelected: session.id === activeSessionId,
+      isSunset: sunsetIdSet?.has(session._lineage_root_id ?? session.id) ?? false,
       isWorking: workingSessionIdSet.has(session.id),
       sessionNumber: sessionNumbers?.get(session.id) ?? null,
       onArchive: () => onArchiveSession(session.id),
@@ -206,6 +212,7 @@ export function SidebarSessionsSection({
       onDelete: () => onDeleteSession(session.id),
       onPin: () => onTogglePin(sessionPinId(session)),
       onResume: () => onResumeSession(session.id),
+      onToggleSunset: onToggleSunset ? () => onToggleSunset(session._lineage_root_id ?? session.id) : undefined,
       reorderable: draggable && !branchStem,
       session
     }
@@ -314,8 +321,10 @@ export function SidebarSessionsSection({
         onDeleteSession={onDeleteSession}
         onResumeSession={onResumeSession}
         onTogglePin={onTogglePin}
+        onToggleSunset={onToggleSunset}
         pinned={pinned}
         sortable={sessionsDraggable}
+        sunsetIdSet={sunsetIdSet}
         workingSessionIdSet={workingSessionIdSet}
       />
     )

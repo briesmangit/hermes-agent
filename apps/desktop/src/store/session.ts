@@ -4,7 +4,7 @@ import { lastVisibleMessageIsUser } from '@/app/chat/thread-loading'
 import type { ContextSuggestion } from '@/app/types'
 import type { HermesConnection } from '@/global'
 import type { ChatMessage } from '@/lib/chat-messages'
-import { persistBoolean, persistString, storedBoolean, storedString } from '@/lib/storage'
+import { persistBoolean, persistString, persistStringArray, storedBoolean, storedString, storedStringArray } from '@/lib/storage'
 import type { SessionInfo, UsageStats } from '@/types/hermes'
 
 type Updater<T> = T | ((current: T) => T)
@@ -656,3 +656,53 @@ export function setSessionWorking(sessionId: string | null | undefined, working:
     }
   }
 }
+
+// ─── Sunset triage ──────────────────────────────────────────────────────────
+// A session you're done working in but not ready to archive (its context may
+// still be needed by a fresh session you branched/handed off to). Distinct from
+// Pinned (must stay visible) and Archived (hidden entirely). Sunset demotes a
+// row visually (dimmed + ⏾ badge) so you can deprioritize it at a glance, and
+// the opt-in Sunset section collects them away from active work.
+//
+// Scoped per profile (a sunset mark on alpha's session must not bleed into
+// beta's list), using the same connection+profile key scheme as workspaceCwd.
+const sunsetKey = (connection: HermesConnection | null = $connection.get()): string => {
+  if (connection?.mode !== 'remote') {
+    return 'hermes.desktop.sunsetSessionIds'
+  }
+
+  const base = encodeURIComponent(connection.baseUrl || 'remote')
+  const profile = encodeURIComponent(connection.profile || 'default')
+
+  return `hermes.desktop.sunsetSessionIds.remote.${base}.${profile}`
+}
+
+export const $sunsetSessionIds = atom<string[]>(storedStringArray(sunsetKey()))
+
+// Re-key on connection change so the right profile's sunset set loads.
+$connection.subscribe(() => {
+  $sunsetSessionIds.set(storedStringArray(sunsetKey()))
+})
+
+export const setSunsetSessionIds = (next: Updater<string[]>) =>
+  updateAtom($sunsetSessionIds, ids => {
+    const value = typeof next === 'function' ? (next as (current: string[]) => string[])(ids) : next
+
+    persistStringArray(sunsetKey(), value)
+
+    return value
+  })
+
+export const toggleSunset = (sessionId: string) =>
+  setSunsetSessionIds(current => (current.includes(sessionId) ? current.filter(id => id !== sessionId) : [...current, sessionId]))
+
+// ─── Cross-profile activity overview ────────────────────────────────────────
+// Always-on aggregation of working/completed/pinned sessions across EVERY
+// profile, independent of the currently-scoped sidebar list. Solves the
+// "switched to beta, now I can't see alpha finished a task" gap: the per-scope
+// $sessions/$workingSessionIds are wiped on gateway switch, but this mirrors the
+// ALL_PROFILES aggregator into its own store so a single "All Activity" section
+// keeps every profile's live status visible regardless of which profile you're
+// browsing.
+export const $allProfileSessions = atom<SessionInfo[]>([])
+export const setAllProfileSessions = (next: Updater<SessionInfo[]>) => updateAtom($allProfileSessions, next)

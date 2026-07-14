@@ -93,18 +93,21 @@ import {
   $sessions,
   $sessionsLoading,
   $sessionsTotal,
+  $sunsetSessionIds,
   $workingSessionIds,
   pruneCompletedSessions,
   resetSessionNumberingCounter,
   sessionPinId,
   setCurrentCwd,
   setSessionCompleted,
-  setSessionNumberingEnabled
+  setSessionNumberingEnabled,
+  toggleSunset
 } from '@/store/session'
 
 import { type AppView, ARTIFACTS_ROUTE, MESSAGING_ROUTE, SKILLS_ROUTE } from '../../routes'
 import type { SidebarNavItem } from '../../types'
 
+import { AllActivitySection } from './all-activity-section'
 import { countLabel } from './chrome'
 import { CompletedSection } from './completed-section'
 import { SidebarCronJobsSection } from './cron-jobs-section'
@@ -130,6 +133,7 @@ import {
 } from './projects'
 import { SidebarBlankState, SidebarPinnedEmptyState, SidebarSessionSkeletons } from './section-states'
 import { SidebarSessionsSection, VIRTUALIZE_THRESHOLD } from './sessions-section'
+import { SunsetSection } from './sunset-section'
 import { WorkingSection } from './working-section'
 
 // Non-session groups (messaging platforms) stay compact: show a few rows up
@@ -356,6 +360,23 @@ export function ChatSidebar({
   // displayAgentSessions can filter them out (they live in their own tabs).
   const completedSessions = useStore($completedSessionIds)
   const completedIdSet = useMemo(() => new Set(completedSessions), [completedSessions])
+
+  // Sunset-triaged sessions (done but not archived) — keyed by durable
+  // lineage-root id so a compressed continuation tip still matches a mark made
+  // on its root.
+  const sunsetIds = useStore($sunsetSessionIds)
+
+  const sunsetIdSet = useMemo(() => {
+    const set = new Set<string>()
+
+    for (const id of sunsetIds) {
+      set.add(id)
+    }
+
+    return set
+  }, [sunsetIds])
+
+  const toggleSunsetFor = useCallback((sessionId: string) => toggleSunset(sessionId), [])
 
   // Session numbering — sequential IDs by creation order (started_at)
   const numberingEnabled = useStore($sessionNumberingEnabled)
@@ -1295,6 +1316,18 @@ export function ChatSidebar({
             )}
 
             {!trimmedQuery && (
+              <AllActivitySection
+                activeSessionId={activeSidebarSessionId}
+                onArchiveSession={onArchiveSession}
+                onBranchSession={onBranchSession}
+                onDeleteSession={onDeleteSession}
+                onResumeSession={onResumeSession}
+                onTogglePin={pinSession}
+                onToggleSunset={toggleSunsetFor}
+              />
+            )}
+
+            {!trimmedQuery && (
               <div className="flex shrink-0 items-center justify-between gap-1 px-1 pb-1">
                 <span className="text-[0.625rem] font-medium uppercase tracking-wide text-(--ui-text-quaternary)">
                   Session #'s
@@ -1330,6 +1363,19 @@ export function ChatSidebar({
                 onDeleteSession={onDeleteSession}
                 onResumeSession={onResumeSession}
                 onTogglePin={pinSession}
+              />
+            )}
+
+            {!trimmedQuery && (
+              <SunsetSection
+                activeSessionId={activeSidebarSessionId}
+                onArchiveSession={onArchiveSession}
+                onBranchSession={onBranchSession}
+                onDeleteSession={onDeleteSession}
+                onResumeSession={onResumeSession}
+                onTogglePin={pinSession}
+                onToggleSunset={toggleSunsetFor}
+                sessions={sessions.filter(s => sunsetIdSet.has(s._lineage_root_id ?? s.id))}
               />
             )}
 
@@ -1490,6 +1536,7 @@ export function ChatSidebar({
                 onResumeSession={onResumeSession}
                 onToggle={() => setSidebarRecentsOpen(!agentsOpen)}
                 onTogglePin={pinSession}
+                onToggleSunset={toggleSunsetFor}
                 open={agentsOpen}
                 pinned={false}
                 projectBackRow={
@@ -1508,6 +1555,7 @@ export function ChatSidebar({
                 sessionNumbers={sessionNumbers}
                 sessions={displayAgentSessions}
                 sortable={!showAllProfiles && agentSessions.length > 1}
+                sunsetIdSet={sunsetIdSet}
                 workingSessionIdSet={workingSessionIdSet}
               />
             )}

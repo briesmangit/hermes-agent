@@ -14,12 +14,14 @@ interface SessionRowCommonProps {
   branchStem?: string
   isPinned: boolean
   isSelected: boolean
+  isSunset?: boolean
   isWorking: boolean
   onArchive: () => void
   onBranch?: () => void
   onDelete: () => void
   onPin: () => void
   onResume: () => void
+  onToggleSunset?: () => void
   reorderable?: boolean
 }
 
@@ -35,6 +37,8 @@ interface VirtualSessionListProps {
   pinned: boolean
   sortable: boolean
   workingSessionIdSet: Set<string>
+  sunsetIdSet?: ReadonlySet<string>
+  onToggleSunset?: (sessionId: string) => void
 }
 
 const ROW_ESTIMATE_PX = 28
@@ -51,7 +55,9 @@ export const VirtualSessionList: FC<VirtualSessionListProps> = ({
   onTogglePin,
   pinned,
   sortable,
-  workingSessionIdSet
+  workingSessionIdSet,
+  sunsetIdSet,
+  onToggleSunset
 }) => {
   const scrollerRef = useRef<HTMLDivElement | null>(null)
 
@@ -84,12 +90,14 @@ export const VirtualSessionList: FC<VirtualSessionListProps> = ({
       branchStem,
       isPinned: pinned,
       isSelected: session.id === activeSessionId,
+      isSunset: sunsetIdSet?.has(session._lineage_root_id ?? session.id) ?? false,
       isWorking: workingSessionIdSet.has(session.id),
       onArchive: () => onArchiveSession(session.id),
       onBranch: onBranchSession ? () => onBranchSession(session.id, session.profile) : undefined,
       onDelete: () => onDeleteSession(session.id),
       onPin: () => onTogglePin(sessionPinId(session)),
       onResume: () => onResumeSession(session.id),
+      onToggleSunset: onToggleSunset ? () => onToggleSunset(session._lineage_root_id ?? session.id) : undefined,
       reorderable
     }
 

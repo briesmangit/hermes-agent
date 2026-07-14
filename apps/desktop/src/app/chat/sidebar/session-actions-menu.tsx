@@ -75,8 +75,10 @@ interface SessionActions {
   sessionId: string
   title: string
   pinned?: boolean
+  sunset?: boolean
   profile?: string
   onPin?: () => void
+  onToggleSunset?: () => void
   onBranch?: () => void
   onArchive?: () => void
   onDelete?: () => void
@@ -97,8 +99,10 @@ function useSessionActions({
   sessionId,
   title,
   pinned = false,
+  sunset = false,
   profile,
   onPin,
+  onToggleSunset,
   onBranch,
   onArchive,
   onDelete
@@ -117,7 +121,18 @@ function useSessionActions({
     }
   }
 
+  const sunsetItem: ItemSpec = {
+    disabled: !onToggleSunset,
+    icon: 'circle-slash',
+    label: sunset ? t.sidebar.clearSunset : t.sidebar.markSunset,
+    onSelect: () => {
+      triggerHaptic('selection')
+      onToggleSunset?.()
+    }
+  }
+
   const items: ItemSpec[] = [
+    sunsetItem,
     ...(canOpenSessionWindow()
       ? [
           {

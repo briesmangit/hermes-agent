@@ -29,6 +29,8 @@ interface SidebarSessionRowProps extends React.ComponentProps<'div'> {
   isPinned: boolean
   isSelected: boolean
   isWorking: boolean
+  /** Sunset-triaged: done but not archived, visually demoted. */
+  isSunset?: boolean
   /** Sequential session number (when numbering is enabled, else null) */
   sessionNumber?: number | null
   onArchive: () => void
@@ -36,6 +38,7 @@ interface SidebarSessionRowProps extends React.ComponentProps<'div'> {
   onDelete: () => void
   onPin: () => void
   onResume: () => void
+  onToggleSunset?: () => void
   reorderable?: boolean
   dragging?: boolean
   dragHandleProps?: React.HTMLAttributes<HTMLElement>
@@ -58,12 +61,14 @@ export function SidebarSessionRow({
     isPinned,
     isSelected,
     isWorking,
+    isSunset = false,
     sessionNumber,
     onArchive,
     onBranch,
     onDelete,
     onPin,
     onResume,
+    onToggleSunset,
     reorderable = false,
     dragging = false,
     dragHandleProps,
@@ -88,6 +93,10 @@ export function SidebarSessionRow({
     // the atom is tiny and rarely non-empty. True when a clarify prompt in this
     // session is waiting on the user.
     const needsInput = useStore($attentionSessionIds).includes(session.id)
+
+    // Sunset rows are visually demoted so they stop competing for attention,
+    // but stay fully readable on hover/focus (we never hide the title).
+    const sunsetDim = isSunset && !isSelected && !needsInput
 
     // Working-session elapsed timer (persists across remount via timerKey).
     const elapsedSec = useElapsedSeconds(isWorking && !needsInput, `sidebar:${session.id}`)
@@ -129,9 +138,11 @@ export function SidebarSessionRow({
                 onBranch={onBranch}
                 onDelete={onDelete}
                 onPin={onPin}
+                onToggleSunset={onToggleSunset}
                 pinned={isPinned}
                 profile={session.profile}
                 sessionId={session.id}
+                sunset={isSunset}
                 title={title}
               >
                 <Button
@@ -150,6 +161,7 @@ export function SidebarSessionRow({
             'group row-hover relative',
             isSelected && 'bg-(--ui-row-active-background)',
             isWorking && 'text-foreground',
+            sunsetDim && 'opacity-55 hover:opacity-100 focus-within:opacity-100',
             // Opaque surface while lifted so the dragged row erases what's under
             // it (translucency let the rows below bleed through).
             dragging && 'z-10 cursor-grabbing bg-(--ui-sidebar-surface-background)',
@@ -234,6 +246,15 @@ export function SidebarSessionRow({
             </Tip>
           ) : null}
           <SidebarRowLabel className="flex-1 font-normal group-hover:text-foreground group-data-[working=true]:text-foreground/90">
+            {isSunset && (
+              <span
+                aria-label={t.sidebar.sunset}
+                className="mr-1 shrink-0 rounded-[3px] bg-(--ui-text-quaternary)/15 px-1 py-px text-[0.5rem] font-semibold uppercase leading-none tracking-wide text-(--ui-text-tertiary)"
+                title={t.sidebar.sunset}
+              >
+                ⏾
+              </span>
+            )}
             {numberingEnabled && sessionNumber != null && (
               <span className="mr-1 shrink-0 font-mono text-[0.625rem] tabular-nums text-(--ui-text-quaternary)">
                 {String(sessionNumber).padStart(2, '0')}
