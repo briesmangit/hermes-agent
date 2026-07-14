@@ -325,7 +325,7 @@ function SidebarRowDot({
       className={cn(
         'rounded-full',
         isWorking
-          ? "relative size-1.5 bg-(--ui-accent) shadow-[0_0_0.625rem_color-mix(in_srgb,var(--ui-accent)_55%,transparent)] before:absolute before:inset-0 before:animate-ping before:rounded-full before:bg-(--ui-accent) before:opacity-70 before:content-['']"
+          ? 'relative size-1.5 bg-(--ui-accent) shadow-[0_0_0.625rem_color-mix(in_srgb,var(--ui-accent)_55%,transparent)]'
           : 'size-1 bg-(--ui-text-quaternary) opacity-80',
         className
       )}
