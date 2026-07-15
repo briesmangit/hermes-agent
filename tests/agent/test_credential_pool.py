@@ -3537,23 +3537,109 @@ def test_get_pool_strategy_warns_on_unknown(tmp_path, monkeypatch, caplog):
     ), "Unknown strategy must emit a WARNING log naming the misconfiguration"
 
 
-def test_exhausted_ttl_429_uses_provider_quota_window():
-    """Layer 2: 429 TTL honors the per-provider quota window.
+def test_exhausted_ttl_429_uses_short_cooldown_without_signal():
+    """False-exhaustion principle: a 429 with NO reset signal is a SHORT cooldown.
 
-    nvidia 429 → 86400 (daily).  ollama-cloud 429 → 604800 (weekly).
-    Unknown provider 429 → 86400 (safe daily default).  401 still 300s
-    (genuinely transient — original short-TTL semantics preserved).
+    Per the 2026-07-15 fix, an unclassifiable 429 (no Retry-After, no body
+    retryDelay, no provider quota signal) must NOT fall back to the provider's
+    longest quota window (e.g. nvidia 86400 / ollama-cloud 604800). A 24h stamp
+    removes real capacity and cascades fleet-wide via the shared exhaustion
+    ledger; a 60s cooldown costs one retry. Provider signals (Gemini
+    retryDelay, Ollama "weekly usage limit") are honored upstream in
+    _normalize_error_context — this test only covers the no-signal fallback.
+
+    nvidia 429 (no signal) → 60.  ollama-cloud 429 (no signal) → 60.
+    Unknown provider 429 → 60.  401 still 300s (genuinely transient).
     """
     from agent.credential_pool import (
         _exhausted_ttl, _provider_quota_window,
-        DEFAULT_QUOTA_WINDOW_SECONDS,
+        EXHAUSTED_TTL_SHORT_SECONDS, DEFAULT_QUOTA_WINDOW_SECONDS,
     )
-    assert _exhausted_ttl(429, "nvidia") == 86400, "NVIDIA 429 → daily quota window"
-    assert _exhausted_ttl(429, "ollama-cloud") == 604800, "Ollama 429 → weekly"
-    assert _exhausted_ttl(429, "unknown_provider") == DEFAULT_QUOTA_WINDOW_SECONDS, (
-        "Unknown provider 429 → safe daily default"
+    assert _exhausted_ttl(429, "nvidia") == EXHAUSTED_TTL_SHORT_SECONDS, (
+        "NVIDIA 429 with no signal → short cooldown (was 86400 → false-exhaustion)"
+    )
+    assert _exhausted_ttl(429, "ollama-cloud") == EXHAUSTED_TTL_SHORT_SECONDS, (
+        "Ollama 429 with no signal → short cooldown (was 604800 → false-exhaustion)"
+    )
+    assert _exhausted_ttl(429, "unknown_provider") == EXHAUSTED_TTL_SHORT_SECONDS, (
+        "Unknown provider 429 → short cooldown"
     )
     assert _exhausted_ttl(401, "nvidia") == 300, "401 is transient auth — short TTL preserved"
+
+
+def test_extract_retry_delay_parses_provider_signals():
+    """Provider reset signals must be parsed so cooldowns match reality.
+
+    Gemini's google.rpc.RetryInfo.retryDelay, generic 'retry after Ns', and
+    Ollama/OpenCode 'weekly/daily usage limit' text must all yield the correct
+    cooldown. A miss here was the root cause of the false-exhaustion cascade:
+    Gemini 429s were stamped 24h instead of 34s.
+    """
+    from agent.credential_pool import _extract_retry_delay_seconds as ext
+
+    gemini = '{"error":{"status":"RESOURCE_EXHAUSTED","details":[{"@type":"type.googleapis.com/google.rpc.RetryInfo","retryDelay":"34s"}]}}'
+    assert ext(gemini) == 34.0, "Gemini retryDelay honored"
+
+    generic = '{"error":"retry after 12 seconds"}'
+    assert ext(generic) == 12.0, "generic retry-after honored"
+
+    ollama_weekly = '{"error":"you (user) have reached your weekly usage limit"}'
+    assert ext(ollama_weekly) == 604800, "Ollama weekly bounded to 7d"
+
+    ollama_daily = '{"error":"daily limit reached"}'
+    assert ext(ollama_daily) == 86400, "daily limit bounded to 24h"
+
+    nvidia_bare = '{"status":429,"title":"Too Many Requests"}'
+    assert ext(nvidia_bare) is None, "NVIDIA bare 429 → no signal → short cooldown"
+
+
+def test_extract_retry_delay_ms_units():
+    """retryDelay in milliseconds is converted to seconds."""
+    from agent.credential_pool import _extract_retry_delay_seconds as ext
+
+    gemini_ms = '{"details":[{"@type":"google.rpc.RetryInfo","retryDelay":"500ms"}]}'
+    assert ext(gemini_ms) == 0.5, "500ms → 0.5s"
+
+
+def test_shared_ledger_overlay_caps_cascade_cooldown():
+    """The cross-profile overlay must never cascade a >1h cooldown.
+
+    A single profile's 24h/7d stamp must be bounded to MAX_OVERLAY_COOLDOWN_SECONDS
+    (3600) when re-applied to other profiles, so one bad signal cannot poison the
+    whole fleet. This is the third layer of the false-exhaustion fix.
+    """
+    import time
+    from agent.credential_pool import (
+        _apply_shared_ledger_overlay,
+        STATUS_EXHAUSTED,
+        PooledCredential,
+    )
+
+    provider = "nvidia"
+    # Entry that has NOT yet seen an error locally.
+    entry = PooledCredential.from_dict(provider, {
+        "id": "test-overlay",
+        "label": "test-overlay",
+        "auth_type": "api_key",
+        "source": "manual",
+        "access_token": "sk-test-overlay-key",
+        "priority": 0,
+        "last_status": "ok",
+    })
+    # Emulate the shared ledger holding a 24h stamp for this key.
+    from agent.exhaustion_ledger import mark_exhausted_shared
+    mark_exhausted_shared(
+        provider=provider, runtime_api_key="sk-test-overlay-key",
+        reset_at=time.time() + 86400, marked_by="alpha",
+    )
+    entries = [entry]
+    mutated = _apply_shared_ledger_overlay(provider, entries)
+    assert mutated, "overlay should have mutated the entry"
+    capped = entries[0].last_error_reset_at
+    assert capped is not None, "overlay must set a reset_at"
+    assert (capped - time.time()) <= 3600 + 5, (
+        f"overlay cooldown must be capped at 1h, got {capped - time.time():.0f}s"
+    )
 
 
 def test_quota_window_config_override(tmp_path, monkeypatch):
