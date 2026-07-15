@@ -150,8 +150,13 @@ _PROVIDER_QUOTA_WINDOW_DEFAULTS = {
 # Transient 401 auth failures cool down briefly so single-key setups can recover.
 # 429 (rate-limited), 402 (billing/quota), and other failures cool down after 1 hour.
 # Provider-supplied reset_at timestamps override these defaults.
+# EXHAUSTED_TTL_SHORT_SECONDS is the DEFAULT for a 429 with NO reset signal. It
+# is deliberately short (60s) per the false-exhaustion principle: a 429 we cannot
+# classify is far safer as a brief cooldown (costs one retry) than as a 24h stamp
+# that removes real capacity and propagates across profiles via the shared ledger.
 EXHAUSTED_TTL_401_SECONDS = 5 * 60           # 5 minutes
 EXHAUSTED_TTL_429_SECONDS = 60 * 60          # 1 hour
+EXHAUSTED_TTL_SHORT_SECONDS = 60             # 60 seconds — conservative-but-safe per-429 default
 EXHAUSTED_TTL_DEFAULT_SECONDS = 60 * 60      # 1 hour
 
 # Pool key prefix for custom OpenAI-compatible endpoints.
@@ -311,10 +316,15 @@ def _exhausted_ttl(error_code: Optional[int], provider: Optional[str] = None) ->
         # Auth failures are genuinely transient — short cooldown is correct.
         return EXHAUSTED_TTL_401_SECONDS
     if error_code == 429:
-        # Provider quota window by config override, else by provider default,
-        # else the conservative daily fallback.  Never the legacy 1h.
-        window = _provider_quota_window(provider)
-        return window
+        # A 429 WITH an explicit reset signal (Retry-After / body retryDelay /
+        # provider quota window) already had its reset_at computed in
+        # _normalize_error_context — this branch only runs when NO signal was
+        # found. Per the false-exhaustion principle ("better to hit a rate
+        # limit than to falsely mark a healthy key exhausted"), a 429 with no
+        # signal is treated as a SHORT cooldown, NOT the provider's longest
+        # quota window. A short cooldown costs one retry; a 24h stamp removes
+        # real capacity AND propagates via the cross-profile ledger.
+        return EXHAUSTED_TTL_SHORT_SECONDS
     return EXHAUSTED_TTL_DEFAULT_SECONDS
 
 
@@ -370,12 +380,36 @@ def _parse_absolute_timestamp(value: Any) -> Optional[float]:
 
 
 def _extract_retry_delay_seconds(message: str) -> Optional[float]:
+    """Best-effort parse of a provider-supplied retry delay from an error body.
+
+    WARNING: a *miss* here is what caused the false-exhaustion cascade. When
+    this returns None, the caller must NOT fall back to the provider's longest
+    quota window — it must use a SHORT cooldown (see _exhausted_ttl), because a
+    false 24h stamp removes real capacity and propagates via the shared ledger,
+    whereas a short cooldown just costs one retry. Principle: better to hit a
+    rate limit than to falsely mark a healthy key exhausted.
+
+    Patterns recognized (provider-agnostic, low false-positive risk):
+      - Gemini: "retryDelay":"34s" / "retryDelay": 34 (inside google.rpc.RetryInfo)
+      - generic: "retry after 12 seconds", "retry in 34s"
+      - OpenCode/Ollama weekly: "reached your weekly usage limit" / "daily limit"
+        -> returned as the provider's documented window, but bounded so we never
+           infer a multi-week lockout from a single body string.
+    """
     if not message:
         return None
+    # Gemini google.rpc.RetryInfo: "retryDelay":"34s" or retryDelay: 34
+    gemini_match = re.search(r"retryDelay[\"'\s:]+(\d+(?:\.\d+)?)\s*(ms|s)?", message, re.IGNORECASE)
+    if gemini_match:
+        value = float(gemini_match.group(1))
+        unit = (gemini_match.group(2) or "s").lower()
+        return value / 1000.0 if unit == "ms" else value
+    # quotaResetDelay (legacy OpenAI-style)
     delay_match = re.search(r"quotaResetDelay[:\s\"]+(\d+(?:\.\d+)?)(ms|s)", message, re.IGNORECASE)
     if delay_match:
         value = float(delay_match.group(1))
         return value / 1000.0 if delay_match.group(2).lower() == "ms" else value
+    # "retry after 12 seconds" / "retry in 34s"
     sec_match = re.search(r"retry\s+(?:after\s+)?(\d+(?:\.\d+)?)\s*(?:sec|secs|seconds|s\b)", message, re.IGNORECASE)
     if sec_match:
         return float(sec_match.group(1))
@@ -389,6 +423,12 @@ def _extract_retry_delay_seconds(message: str) -> Optional[float]:
     min_only_match = re.search(r"resets?\s+in\s+(\d+)\s*min\b", message, re.IGNORECASE)
     if min_only_match:
         return int(min_only_match.group(1)) * 60
+    # Ollama/OpenCode explicit weekly/daily language — bounded so a single body
+    # string never infers > 7d lockout. Weekly -> 7d, daily -> 24h.
+    if re.search(r"weekly\s+usage\s+limit|per\s*week", message, re.IGNORECASE):
+        return 604800
+    if re.search(r"daily\s+(?:usage\s+)?limit|per\s*day", message, re.IGNORECASE):
+        return 86400
     return None
 
 
@@ -2842,6 +2882,18 @@ def _apply_shared_ledger_overlay(provider: str, entries: List[PooledCredential])
         if not shared:
             continue
         shared_reset = shared.get("reset_at")
+        # BOUNDED OVERLAY (false-exhaustion prevention): a shared ledger entry
+        # may have been stamped with a very long window (e.g. 24h for a per-minute
+        # 429, or 7d for a weekly quota) by ANOTHER profile. Re-applying that same
+        # long window here is what turned one key's rate-limit into a fleet-wide
+        # lockout. Cap the overlay's effective cooldown at a maximum so a single
+        # bad signal cannot poison all profiles. The local pool will re-probe and
+        # shorten/extend the cooldown correctly on next use.
+        MAX_OVERLAY_COOLDOWN_SECONDS = 3600  # never cascade > 1h from the ledger
+        if isinstance(shared_reset, (int, float)):
+            capped_reset = min(shared_reset, time.time() + MAX_OVERLAY_COOLDOWN_SECONDS)
+        else:
+            capped_reset = time.time() + MAX_OVERLAY_COOLDOWN_SECONDS
         # Overlay only if the ledger has a reset signal equal-or-newer than
         # the local entry's own last_error_reset_at.  When the local key has
         # never seen an error, last_error_reset_at is None, which always
@@ -2859,12 +2911,12 @@ def _apply_shared_ledger_overlay(provider: str, entries: List[PooledCredential])
                 last_error_code=429,   # preserved as 429 — approximate when source is shared
                 last_error_reason=f"shared-exhaustion by {shared.get('marked_by', 'other')}",
                 last_error_message="Cross-profile exhaustion ledger reports this key as exhausted upstream",
-                last_error_reset_at=shared_reset,
+                last_error_reset_at=capped_reset,
             )
             entries[entries.index(entry)] = updated
             mutated = True
             logger.info(
-                "credential pool: %s overlay exhausted from shared ledger (reset_at=%s)",
-                entry.label or entry.id[:8], shared_reset,
+                "credential pool: %s overlay exhausted from shared ledger (capped_reset_at=%s, orig=%s)",
+                entry.label or entry.id[:8], capped_reset, shared_reset,
             )
     return mutated
