@@ -29,6 +29,7 @@ import {
   setSessionsLoading,
   setSessionsTotal
 } from '@/store/session'
+import { refreshAllProfileSunsetIds } from '@/store/sunset-cross-profile'
 
 import { sameCronSignature } from '../../desktop-controller-utils'
 
@@ -203,6 +204,11 @@ export function useSessionListActions({ profileScope }: UseSessionListActionsArg
         setAllProfileSessions(result.sessions)
       })
       .catch(() => undefined)
+
+    // Refresh the cross-profile sunset mirror alongside the sessions mirror
+    // so SunsetSection shows sunset sessions from ALL profiles on profile
+    // switch + gateway reconnect — same timing as the $allProfileSessions refresh.
+    refreshAllProfileSunsetIds()
 
     void refreshCronSessions()
     void refreshCronJobs()

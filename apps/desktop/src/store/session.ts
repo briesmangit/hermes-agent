@@ -567,6 +567,12 @@ const completedSessionExpiry = new Map<string, number>()
 export const $completedSessionIds = atom<string[]>([])
 export const setCompletedSessionIds = (next: Updater<string[]>) => updateAtom($completedSessionIds, next)
 
+// Shared tick atom for consolidated 1s countdown re-render (S07 clock consolidation)
+export const $completedTick = atom<number>(0)
+export function bumpCompletedTick(): void {
+  $completedTick.set($completedTick.get() + 1)
+}
+
 export function setSessionCompleted(sessionId: string | null | undefined, completed: boolean) {
   if (!sessionId) {
     return
@@ -666,7 +672,7 @@ export function setSessionWorking(sessionId: string | null | undefined, working:
 //
 // Scoped per profile (a sunset mark on alpha's session must not bleed into
 // beta's list), using the same connection+profile key scheme as workspaceCwd.
-const sunsetKey = (connection: HermesConnection | null = $connection.get()): string => {
+export const sunsetKey = (connection: HermesConnection | null = $connection.get()): string => {
   if (connection?.mode !== 'remote') {
     return 'hermes.desktop.sunsetSessionIds'
   }

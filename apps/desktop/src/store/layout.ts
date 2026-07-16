@@ -18,6 +18,7 @@ export const SIDEBAR_SESSIONS_PAGE_SIZE = 50
 
 const SIDEBAR_PINNED_STORAGE_KEY = 'hermes.desktop.pinnedSessions'
 const SIDEBAR_AGENTS_GROUPED_STORAGE_KEY = 'hermes.desktop.agentsGroupedByWorkspace'
+const SIDEBAR_SUNSET_VISIBLE_STORAGE_KEY = 'hermes.desktop.sidebarSunsetVisible'
 const SIDEBAR_CRON_OPEN_STORAGE_KEY = 'hermes.desktop.sidebarCronOpen'
 const SIDEBAR_MESSAGING_OPEN_STORAGE_KEY = 'hermes.desktop.sidebarMessagingOpen'
 const SIDEBAR_SESSION_ORDER_STORAGE_KEY = 'hermes.desktop.sessionOrder'
@@ -139,6 +140,10 @@ export const $sidebarMessagingOpenIds = persistentAtom(
   Codecs.stringArray
 )
 export const $sidebarAgentsGrouped = persistentAtom(SIDEBAR_AGENTS_GROUPED_STORAGE_KEY, false, Codecs.bool)
+// Toggle for the Sunset section visibility — the footer-menu gear lets the user
+// hide it without losing the toggled-sunset session data. S05 wires it into the
+// cross-profile Sunset render path; for now the local section gate honors it.
+export const $sidebarSunsetVisible = persistentAtom(SIDEBAR_SUNSET_VISIBLE_STORAGE_KEY, true, Codecs.bool)
 // When true, the sessions sidebar moves to the right and the file browser +
 // preview rail move to the left — a mirror of the default layout.
 export const $panesFlipped = persistentAtom(PANES_FLIPPED_STORAGE_KEY, false, Codecs.bool)
@@ -272,6 +277,10 @@ export function toggleSidebarMessagingOpen(sourceId: string) {
 
 export function setSidebarAgentsGrouped(grouped: boolean) {
   $sidebarAgentsGrouped.set(grouped)
+}
+
+export function setSidebarSunsetVisible(visible: boolean) {
+  $sidebarSunsetVisible.set(visible)
 }
 
 export function setSidebarSessionOrderIds(ids: string[]) {
