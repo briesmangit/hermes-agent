@@ -262,6 +262,11 @@ export function SidebarSessionRow({
             )}
             {title}
           </SidebarRowLabel>
+          {isWorking && session.preview && (
+            <div className="truncate text-[0.625rem] text-(--ui-text-tertiary) mt-0.5">
+              {session.preview}
+            </div>
+          )}
           {children}
         </SidebarRowBody>
       </SidebarRowShell>

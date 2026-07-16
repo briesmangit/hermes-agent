@@ -1,18 +1,24 @@
-import type * as React from 'react'
-import { useMemo, useState } from 'react'
+import { useMemo } from 'react'
 
 import { SidebarPanelLabel } from '@/app/shell/sidebar-label'
-import { DisclosureCaret } from '@/components/ui/disclosure-caret'
 import { SidebarGroup, SidebarGroupContent } from '@/components/ui/sidebar'
 import type { SessionInfo } from '@/hermes'
 import { useI18n } from '@/i18n'
-import { flattenSessionsWithBranches } from '@/lib/session-branch-tree'
+import { profileColor } from '@/lib/profile-color'
 
 import { SidebarCount } from './chrome'
 import { SidebarSessionRow } from './session-row'
 
 interface AttentionSectionProps {
-  sessions: SessionInfo[]
+  /**
+   * Cross-profile union of every profile's live session mirror. This is the
+   * source of truth for attention scanning — never pass the scope-filtered
+   * `$sessions` here, or a crave for input from profile B becomes invisible
+   * while the operator is scoped to profile A (INV-5).
+   */
+  allProfileSessions: SessionInfo[]
+  /** Ids flagged `state.needsInput === true` by the gateway. */
+  attentionSessionIds: string[]
   activeSessionId: string | null
   workingSessionIdSet: Set<string>
   onResumeSession: (sessionId: string) => void
@@ -22,8 +28,21 @@ interface AttentionSectionProps {
   onBranchSession?: (sessionId: string, profile?: string) => void
 }
 
+/**
+ * AttentionSection — top tier of the Fleet Tier List.
+ *
+ * Surfaces every session currently flagged by the gateway as awaiting user
+ * input (i.e. `state.needsInput === true`). Invariant INV-5: this tier is
+ * always cross-profile — `allProfileSessions` is the union of every
+ * profile's live mirror, so a need in profile B is visible while the
+ * operator is scoped to profile A.
+ *
+ * Invariant INV-6: the row carries a steady 3px red left-border (no pulse /
+ * ping animation). The header is always expanded while non-empty.
+ */
 export function AttentionSection({
-  sessions,
+  allProfileSessions,
+  attentionSessionIds,
   activeSessionId,
   workingSessionIdSet,
   onResumeSession,
@@ -34,94 +53,82 @@ export function AttentionSection({
 }: AttentionSectionProps) {
   const { t } = useI18n()
   const s = t.sidebar
-  const [open, setOpen] = useState(true)
 
-  // Sort sessions by most recent activity (last_active descending)
-  const sortedSessions = useMemo(
-    () => [...sessions].sort((a, b) => (b.last_active || 0) - (a.last_active || 0)),
-    [sessions]
-  )
+  const attentionSet = useMemo(() => new Set(attentionSessionIds), [attentionSessionIds])
 
-  const displayEntries = useMemo(() => flattenSessionsWithBranches(sortedSessions), [sortedSessions])
+  // Cross-profile filter + sort by `last_active` desc (newest first).
+  const sessions = useMemo(() => {
+    if (attentionSet.size === 0) {
+      return []
+    }
+    const next: SessionInfo[] = []
+    for (const session of allProfileSessions) {
+      if (attentionSet.has(session.id)) {
+        next.push(session)
+      }
+    }
+    next.sort((a, b) => (b.last_active || 0) - (a.last_active || 0))
+    return next
+  }, [allProfileSessions, attentionSet])
 
+  // Render nothing when there is nothing to attend to.
   if (sessions.length === 0) {
     return null
   }
 
   return (
-    <SidebarGroup className="shrink-0 p-0 pb-1">
-      <SidebarSectionHeader
-        collapsible={true}
-        label={s.attention}
-        meta={String(sessions.length)}
-        onToggle={() => setOpen(!open)}
-        open={open}
-      />
-      {open && (
-        <SidebarGroupContent className="flex flex-col gap-px pb-1.75">
-          {displayEntries.map(({ branchStem, session }) => (
-            <SidebarSessionRow
-              branchStem={branchStem}
-              isPinned={false}
-              isSelected={session.id === activeSessionId}
-              isWorking={workingSessionIdSet.has(session.id)}
-              key={session.id}
-              onArchive={() => onArchiveSession(session.id)}
-              onBranch={onBranchSession ? () => onBranchSession(session.id, session.profile) : undefined}
-              onDelete={() => onDeleteSession(session.id)}
-              onPin={() => onTogglePin(session.id)}
-              onResume={() => onResumeSession(session.id)}
-              session={session}
-            />
-          ))}
-        </SidebarGroupContent>
-      )}
+    <SidebarGroup className="attention-section shrink-0 p-0 pb-1">
+      <div className="group/section flex shrink-0 items-center justify-between pb-1 pt-1.5">
+        <div className="flex w-fit items-center gap-1 leading-none">
+          <SidebarPanelLabel>{s.needsInput}</SidebarPanelLabel>
+          <SidebarCount>{sessions.length}</SidebarCount>
+        </div>
+      </div>
+      <SidebarGroupContent className="flex flex-col gap-px pb-1.75">
+        {sessions.map(session => {
+          const isWorking = workingSessionIdSet.has(session.id)
+          const color = profileColor(session.profile)
+          // INV-6: 3px steady red left-border. Bump to 4px only when the
+          // session is also in the working set (very rare — the gateway
+          // typically picks one signal at a time).
+          const borderWidth = isWorking ? 4 : 3
+          return (
+            <div className="relative" key={session.id}>
+              <span
+                aria-hidden
+                className="absolute left-0 top-0 bottom-0 bg-red-500"
+                style={{ width: `${borderWidth / 16}rem` }}
+              />
+              {color && (
+                <span
+                  aria-hidden
+                  className="absolute top-0 bottom-0 rounded-full"
+                  style={{
+                    backgroundColor: color,
+                    // Sit just inside the red bar so the profile identity is
+                    // discoverable without crowding the urgency signal.
+                    left: `${(borderWidth + 2) / 16}rem`,
+                    width: '0.125rem'
+                  }}
+                />
+              )}
+              <SidebarSessionRow
+                isPinned={false}
+                isSelected={session.id === activeSessionId}
+                isSunset={false}
+                isWorking={isWorking}
+                onArchive={() => onArchiveSession(session.id)}
+                onBranch={onBranchSession ? () => onBranchSession(session.id, session.profile) : undefined}
+                onDelete={() => onDeleteSession(session.id)}
+                onPin={() => onTogglePin(session.id)}
+                onResume={() => onResumeSession(session.id)}
+                session={session}
+                style={color ? { paddingLeft: '0.625rem' } : undefined}
+              />
+            </div>
+          )
+        })}
+      </SidebarGroupContent>
     </SidebarGroup>
-  )
-}
-
-interface SidebarSectionHeaderProps {
-  label: string
-  open: boolean
-  onToggle: () => void
-  meta?: React.ReactNode
-  icon?: React.ReactNode
-  collapsible?: boolean
-}
-
-function SidebarSectionHeader({
-  label,
-  open,
-  onToggle,
-  meta,
-  icon,
-  collapsible = true
-}: SidebarSectionHeaderProps) {
-  const labelBody = (
-    <>
-      {icon}
-      <SidebarPanelLabel>{label}</SidebarPanelLabel>
-      {meta && <SidebarCount>{meta}</SidebarCount>}
-    </>
-  )
-
-  return (
-    <div className="group/section flex shrink-0 items-center justify-between gap-1 pb-1 pt-1.5">
-      {collapsible ? (
-        <button
-          className="group/section-label flex w-fit items-center gap-1 bg-transparent text-left leading-none"
-          onClick={onToggle}
-          type="button"
-        >
-          {labelBody}
-          <DisclosureCaret
-            className="text-(--ui-text-tertiary) opacity-0 transition group-hover/section-label:opacity-100"
-            open={open}
-          />
-        </button>
-      ) : (
-        <div className="flex w-fit items-center gap-1 leading-none">{labelBody}</div>
-      )}
-    </div>
   )
 }

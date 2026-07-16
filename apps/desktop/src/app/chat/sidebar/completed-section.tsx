@@ -1,5 +1,5 @@
 import { useStore } from '@nanostores/react'
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo } from 'react'
 import type * as React from 'react'
 
 import { SidebarPanelLabel } from '@/app/shell/sidebar-label'
@@ -8,7 +8,7 @@ import { SidebarGroup, SidebarGroupContent } from '@/components/ui/sidebar'
 import type { SessionInfo } from '@/hermes'
 import { useI18n } from '@/i18n'
 import { cn } from '@/lib/utils'
-import { $allProfileSessions, $completedSessionIds, $sessions, completedSecondsRemaining, pruneCompletedSessions } from '@/store/session'
+import { $allProfileSessions, $completedSessionIds, $completedTick, $sessions, completedSecondsRemaining } from '@/store/session'
 
 import { SidebarCount } from './chrome'
 import { SidebarSessionRow } from './session-row'
@@ -66,30 +66,8 @@ export function CompletedSection({
 
   const completedCount = completedSessions.length
 
-  // Live countdown tick (1 s) — drives per-row "mm:ss" re-render.
-  const [, setTick] = useState(0)
-  useEffect(() => {
-    if (completedCount === 0) {
-      return
-    }
-
-    const id = setInterval(() => setTick(t => t + 1), 1000)
-
-    return () => clearInterval(id)
-  }, [completedCount])
-
-  // Prune expired completions once a second (cheap Map scan, only bumps atom when something expired).
-  useEffect(() => {
-    if (completedCount === 0) {
-      return
-    }
-
-    const id = setInterval(() => {
-      pruneCompletedSessions()
-    }, 1000)
-
-    return () => clearInterval(id)
-  }, [completedCount])
+  // Subscribe to shared completed tick atom (S07 clock consolidation) for countdown re-render.
+  useStore($completedTick)
 
   // Section is hidden when empty.
   if (completedCount === 0) {
