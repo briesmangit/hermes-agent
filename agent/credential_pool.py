@@ -776,6 +776,11 @@ class CredentialPool:
             terminal_status = STATUS_DEAD
         else:
             terminal_status = STATUS_EXHAUSTED
+        # Compute effective reset_at: provider signal if present, else Layer 2 quota-window fallback
+        effective_reset_at = normalized_error.get("reset_at")
+        if effective_reset_at is None and terminal_status == STATUS_EXHAUSTED:
+            ttl = _exhausted_ttl(status_code, self.provider)
+            effective_reset_at = time.time() + ttl
         updated = replace(
             entry,
             last_status=terminal_status,
@@ -783,7 +788,7 @@ class CredentialPool:
             last_error_code=status_code,
             last_error_reason=normalized_error.get("reason"),
             last_error_message=normalized_error.get("message"),
-            last_error_reset_at=normalized_error.get("reset_at"),
+            last_error_reset_at=effective_reset_at,
         )
         self._replace_entry(entry, updated)
         self._persist()
@@ -794,18 +799,12 @@ class CredentialPool:
         if terminal_status in (STATUS_EXHAUSTED, STATUS_DEAD):
             try:
                 from agent.exhaustion_ledger import mark_exhausted_shared
-                # Compute the effective reset_at: real provider signal if
-                # present, else the Layer 2 quota-window TTL fallback.  Both
-                # are useful for readers (they know when to attempt recovery).
-                reset_at = normalized_error.get("reset_at")
-                if reset_at is None and terminal_status == STATUS_EXHAUSTED:
-                    ttl = _exhausted_ttl(status_code, self.provider)
-                    reset_at = time.time() + ttl
+                # Use the same effective_reset_at we computed for the entry
                 marked_by = self._profile_name_for_ledger()
                 mark_exhausted_shared(
                     provider=self.provider,
                     runtime_api_key=entry.runtime_api_key or entry.access_token or "",
-                    reset_at=reset_at,
+                    reset_at=effective_reset_at,
                     marked_by=marked_by,
                 )
             except Exception as exc:
