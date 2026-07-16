@@ -59,7 +59,7 @@ const DEFAULT_HERMES_HOME = (() => {
   }
   return path.join(os.homedir(), '.hermes')
 })()
-const VENV_ROOT = path.join(DEFAULT_HERMES_HOME, 'hermes-agent', 'venv')
+const VENV_ROOT = path.join(DEFAULT_HERMES_HOME, 'hermes-agent', '.venv')
 const FRESH_SANDBOX_ROOT = path.join(os.tmpdir(), 'hermes-desktop-fresh-install')
 
 function die(message) {
