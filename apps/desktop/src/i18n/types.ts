@@ -1392,6 +1392,7 @@ export interface Translations {
       ageDay: string
       ageHour: string
       ageMin: string
+      lastTouched: string
     }
   }
 
