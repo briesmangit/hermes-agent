@@ -1453,7 +1453,11 @@ export const zhHant = defineLocale({
     priority: '優先',
     markPriority: '標記為優先',
     clearPriority: '取消優先',
-    prioritySection: '優先',
+    prioritySection: '優先度',
+    sortCreated: '建立順',
+    sortOpened: '開啟順',
+    sortByCreated: '依建立時間排序最近工作階段',
+    sortByOpened: '依最後開啟排序最近工作階段（重新開啟會置頂）',
     cronJobs: '排程任務',
     profileSummaryBar: '設定檔活動摘要',
     groupAriaGrouped: '以單一清單顯示工作階段',
@@ -1552,7 +1556,8 @@ export const zhHant = defineLocale({
       ageNow: '剛才',
       ageDay: '天',
       ageHour: '時',
-      ageMin: '分'
+      ageMin: '分',
+      lastTouched: '最後操作'
     }
   },
 

@@ -1305,6 +1305,10 @@ export interface Translations {
     projectEmpty: string
     noSessions: string
     profileSummaryBar: string
+    sortCreated: string
+    sortOpened: string
+    sortByCreated: string
+    sortByOpened: string
     projects: {
       sectionLabel: string
       newButton: string
