@@ -93,6 +93,12 @@ export function SidebarSessionRow({
     // are obvious at a glance without hovering — this is the "wrong session"
     // confusion fix. Recomputes each render; the live tick below forces it.
     const ageColor = ageHeatColor(ageSeconds)
+    // Fleetmon alignment: show the session's short hex (last 8 of id) so the
+    // same session is identifiable across the desktop sidebar and the fleetmon
+    // log, plus a profile-color tag chip. Hidden on working rows (already busy)
+    // and when numbering is on (avoid double mono prefix clutter).
+    const hexId = session.id.slice(-8)
+    const profColor = profileColor(session.profile)
     const handleLabel = `Reorder ${title}`
     const numberingEnabled = useStore($sessionNumberingEnabled)
     // A handed-off session's live source is local, but it originated on a
@@ -289,6 +295,21 @@ export function SidebarSessionRow({
             {numberingEnabled && sessionNumber != null && (
               <span className="mr-1 shrink-0 font-mono text-[0.625rem] tabular-nums text-(--ui-text-quaternary)">
                 {String(sessionNumber).padStart(2, '0')}
+              </span>
+            )}
+            {!isWorking && !numberingEnabled && (
+              <span className="mr-1 inline-flex shrink-0 items-center gap-1">
+                {profColor && (
+                  <span
+                    aria-hidden="true"
+                    className="size-1.5 rounded-full"
+                    style={{ backgroundColor: profColor }}
+                    title={session.profile || 'default'}
+                  />
+                )}
+                <span className="font-mono text-[0.5625rem] tabular-nums text-(--ui-text-quaternary)" title={`${session.profile || 'default'} · ${session.id}`}>
+                  {hexId}
+                </span>
               </span>
             )}
             {title}
