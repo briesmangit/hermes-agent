@@ -1736,6 +1736,10 @@ export const zh: Translations = {
     markPriority: '标记为优先',
     clearPriority: '取消优先',
     prioritySection: '优先',
+    sortCreated: '创建顺序',
+    sortOpened: '打开顺序',
+    sortByCreated: '按创建时间排序最近会话',
+    sortByOpened: '按最后打开排序最近会话（重新打开置顶）',
     cronJobs: '定时任务',
     profileSummaryBar: '配置文件活动摘要',
     groupAriaGrouped: '以单一列表显示会话',
@@ -1837,7 +1841,8 @@ export const zh: Translations = {
       ageNow: '刚刚',
       ageDay: '天',
       ageHour: '时',
-      ageMin: '分'
+      ageMin: '分',
+      lastTouched: '最后操作'
     }
   },
 

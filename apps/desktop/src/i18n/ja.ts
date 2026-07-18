@@ -1500,6 +1500,10 @@ export const ja = defineLocale({
     markPriority: '優先にする',
     clearPriority: '優先を解除',
     prioritySection: '優先',
+    sortCreated: '作成順',
+    sortOpened: '開いた順',
+    sortByCreated: '最近のセッションを作成順に並べる',
+    sortByOpened: '最近のセッションを最後に開いた順に並べる（再開で上に）',
     cronJobs: 'Cronジョブ',
     profileSummaryBar: 'プロファイル アクティビティ サマリー',
     groupAriaGrouped: 'セッションを単一リストとして表示',
@@ -1601,7 +1605,8 @@ export const ja = defineLocale({
       ageNow: 'たった今',
       ageDay: '日',
       ageHour: '時間',
-      ageMin: '分'
+      ageMin: '分',
+      lastTouched: '最終操作'
     }
   },
 
