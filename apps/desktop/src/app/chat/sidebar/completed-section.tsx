@@ -8,6 +8,7 @@ import { SidebarGroup, SidebarGroupContent } from '@/components/ui/sidebar'
 import type { SessionInfo } from '@/hermes'
 import { useI18n } from '@/i18n'
 import { cn } from '@/lib/utils'
+import { $completedTtlSetting } from '@/store/layout'
 import { $allProfileSessions, $completedSessionIds, $completedTick, $sessions, completedSecondsRemaining } from '@/store/session'
 
 import { SidebarCount } from './chrome'
