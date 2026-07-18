@@ -7,7 +7,7 @@ import { SidebarGroup, SidebarGroupContent } from '@/components/ui/sidebar'
 import type { SessionInfo } from '@/hermes'
 import { useI18n } from '@/i18n'
 import { $allProfileSessions, $sessions } from '@/store/session'
-import { $allProfileKanbanIds } from '@/store/kanban-cross-profile'
+import { $allProfileKanbanIds, isAutoKanbanSession } from '@/store/kanban-cross-profile'
 
 import { SidebarCount } from './chrome'
 import { SidebarSessionRow } from './session-row'
@@ -71,19 +71,22 @@ export function KanbanSection({
 
   const kanbanSessions = useMemo(() => {
     const resolved: SessionInfo[] = []
+    const seen = new Set<string>()
 
+    // 1) Sessions explicitly toggled (manual "Mark as Kanban").
     for (const id of kanbanIdSet) {
       const session = sessionById.get(id)
 
       if (session) {
         resolved.push(session)
+        seen.add(session.id)
       }
     }
 
     // Also match by lineage-root id so a compressed continuation tip still
     // resolves to a session object even if the root id itself isn't a session id.
     for (const session of crossProfileSessions) {
-      if (resolved.includes(session)) {
+      if (seen.has(session.id)) {
         continue
       }
 
@@ -91,6 +94,21 @@ export function KanbanSection({
 
       if (kanbanIdSet.has(rootId) && !sessionById.get(rootId)) {
         resolved.push(session)
+        seen.add(session.id)
+      }
+    }
+
+    // 2) Auto-detected kanban sessions: cwd is a kanban task worktree
+    //    (`<repo>/.worktrees/t_<hex>`) OR title matches `"work kanban task …"`.
+    //    These appear in the Kanban tier automatically — no manual toggle needed.
+    for (const session of crossProfileSessions) {
+      if (seen.has(session.id)) {
+        continue
+      }
+
+      if (isAutoKanbanSession(session)) {
+        resolved.push(session)
+        seen.add(session.id)
       }
     }
 

@@ -664,6 +664,11 @@
                   return next;
                 });
                 scheduleReload();
+                // Keep the colored board-overview strip fresh across ALL
+                // boards (not just the one being viewed): any task event
+                // anywhere bumps the board list so button colors + counts
+                // + attention reasons update within the debounce window.
+                if (loadBoardList) loadBoardList();
               }
             } catch (_e) { /* ignore */ }
           };
@@ -1029,7 +1034,7 @@
 
     return h(ErrorBoundary, null,
       h("div", { className: "hermes-kanban flex flex-col gap-4" },
-        h(BoardSwitcher, {
+        h(BoardStatusStrip, {
           board: board,
           boardList: boardList,
           onSwitch: switchBoard,
@@ -1805,6 +1810,119 @@
     );
   }
 
+  // -------------------------------------------------------------------------
+  // BoardStatusStrip — colorized overview of every open board.
+  //
+  // One button per board (no dropdown), each colored by its aggregate state:
+  //   green  = prepared, ready to start (todo/ready pending, nothing stuck/running)
+  //   orange = agents working (any live-status slice exists)
+  //   red    = needs attention (blocked, crash-looping workers, stale
+  //            heartbeats, expired claims, or stalled-ready slices). The
+  //            human-readable reason is rendered inline below the board
+  //            name so the operator never menu-dives to find the cause.
+  //   blue   = completed (all slices done, total > 0)
+  //
+  // A red board with active work shows an orange ring around the red fill so
+  // both signals stay visible. Clicking a button switches the active board.
+  // The "manage" affordance (new-board / archive) toggles the full
+  // BoardSwitcher dropdown for the actions that don't fit on a button strip.
+  //
+  // Predicate order: red > orange > green > blue. A board with blocked
+  // slices AND workers running is RED (attention wins). A board with done=
+  // total AND no flags is BLUE. Empty boards (total=0, no counts) render
+  // with a neutral "—" color and a dim label.
+  function BoardStatusStrip(props) {
+    const { t } = useI18n();
+    const list = (props.boardList || []).filter(function (b) {
+      // Only show boards that have ever had work or are non-default —
+      // matches BoardSwitcher's "shouldShow" gate so single-project users
+      // on an empty default don't see a strip of one empty button.
+      return b.slug !== "default" || (b.total || 0) > 0;
+    });
+    const [showManage, setShowManage] = useState(false);
+
+    if (list.length === 0) {
+      // Fall back to BoardSwitcher's compact "+ New board" affordance.
+      return h(BoardSwitcher, props);
+    }
+
+    function stateFor(b) {
+      const counts = b.counts || {};
+      const total = b.total || 0;
+      const done = counts.done || 0;
+      const health = b.health || {};
+      const live = (counts.running || 0) + (counts.active || 0)
+                 + (counts.in_progress || 0) + (counts.queued || 0);
+      const ready = (counts.todo || 0) + (counts.ready || 0)
+                  + (counts.pending || 0) + (counts.triage || 0);
+      const needsAttention = !!health.needs_attention;
+
+      // Blue: everything done.
+      if (total > 0 && done === total && !needsAttention && live === 0) {
+        return { color: "blue", label: "done", done: done, total: total, live: 0 };
+      }
+      // Red: needs attention (wins over orange — attention is the actionable signal).
+      if (needsAttention) {
+        return {
+          color: "red", label: "needs attention",
+          done: done, total: total, live: live,
+          ring: live > 0 ? "orange" : null,  // orange ring = agents still working despite red
+          reasons: health.reasons || [],
+        };
+      }
+      // Orange: agents actively working.
+      if (live > 0) {
+        return { color: "orange", label: "working", done: done, total: total, live: live };
+      }
+      // Green: prepared, ready to start.
+      if (ready > 0 && live === 0) {
+        return { color: "green", label: "ready", done: done, total: total, live: 0 };
+      }
+      // Neutral: empty board, or only-archived, or some odd state.
+      return { color: "neutral", label: total === 0 ? "empty" : "idle", done: done, total: total, live: 0 };
+    }
+
+    const buttons = list.map(function (b) {
+      const s = stateFor(b);
+      const isActive = b.slug === props.board;
+      const counter = s.total > 0 ? (s.done + "/" + s.total) : "";
+      const cls = [
+        "hermes-kanban-boardbtn",
+        "hermes-kanban-boardbtn--" + s.color,
+        isActive ? "hermes-kanban-boardbtn--active" : "",
+        s.ring === "orange" ? "hermes-kanban-boardbtn--ring-orange" : "",
+      ].join(" ").trim();
+      const title = (b.name || b.slug) + " · " + s.label
+        + (s.reasons && s.reasons.length ? "\n" + s.reasons.join("\n") : "");
+      return h("button", {
+        key: b.slug,
+        type: "button",
+        className: cls,
+        title: title,
+        onClick: function () { if (props.onSwitch) props.onSwitch(b.slug); },
+      },
+        h("span", { className: "hermes-kanban-boardbtn-name" }, b.name || b.slug),
+        counter ? h("span", { className: "hermes-kanban-boardbtn-count tabular-nums" }, counter) : null,
+        s.reasons && s.reasons.length
+          ? h("span", { className: "hermes-kanban-boardbtn-reason" }, s.reasons[0])
+          : h("span", { className: "hermes-kanban-boardbtn-reason hermes-kanban-boardbtn-reason--muted" }, tx(t, "boardState." + s.label, s.label)),
+      );
+    });
+
+    return h("div", { className: "hermes-kanban-boardstrip" },
+      h("div", { className: "hermes-kanban-boardstrip-row", role: "tablist", "aria-label": tx(t, "boardStrip.label", "Kanban boards") }, buttons),
+      h("div", { className: "hermes-kanban-boardstrip-manage" },
+        h("button", {
+          type: "button",
+          className: "hermes-kanban-boardstrip-managebtn",
+          onClick: function () { setShowManage(!showManage); },
+          title: tx(t, "boardStrip.manageHint", "New board / archive (full switcher)"),
+        }, showManage ? tx(t, "boardStrip.manageHide", "hide") : tx(t, "boardStrip.manageShow", "manage")),
+        showManage ? h(BoardSwitcher, props) : null,
+      ),
+    );
+  }
+
   function BoardSwitcher(props) {
     const { t } = useI18n();
     const list = props.boardList || [];
@@ -1814,9 +1932,6 @@
     const hasMultipleBoards = list.length > 1;
 
     // Hide entirely when only the default board exists AND it's empty —
-    // single-project users never see boards UI unless they ask for it.
-    // We show the [+ New board] affordance as soon as any board has a
-    // task (so the user can discover multi-project before they need it)
     // OR when any non-default board exists.
     const totalAcrossAllBoards = list.reduce(function (n, b) { return n + (b.total || 0); }, 0);
     const shouldShow = hasMultipleBoards || totalAcrossAllBoards > 0;

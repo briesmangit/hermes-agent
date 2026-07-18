@@ -30,7 +30,7 @@ import {
   setSidebarViewMode,
   setTerminalDockPosition
 } from '@/store/layout'
-import { $sessionNumberingEnabled, resetSessionNumberingCounter, setSessionNumberingEnabled } from '@/store/session'
+import { $recentsSortMode, $sessionNumberingEnabled, resetSessionNumberingCounter, setRecentsSortMode, setSessionNumberingEnabled } from '@/store/session'
 
 // Completed TTL options offered in the footer-gear selector. 0 means sticky
 // (rows remain in Completed until the user explicitly clears them). The value
@@ -83,6 +83,7 @@ export function SidebarFooterMenu() {
   const compact = useStore($sidebarCompact)
   const terminalDockPosition = useStore($terminalDockPosition)
   const viewMode = useStore($sidebarViewMode)
+  const recentsSortMode = useStore($recentsSortMode)
 
   return (
     <DropdownMenu>

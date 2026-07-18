@@ -1590,3 +1590,112 @@
 .hermes-kanban-trash-label {
   font-weight: 500;
 }
+
+/* ---- Board status strip (colorized board overview) ------------------ */
+/* Replaces the plain <select> board picker with one button per board,
+ * each colored by aggregate state. Colors are status-semantic and
+ * theme-independent (same pattern the plugin uses for its destructive
+ * surfaces): fall back to a literal when a host theme omits the var. */
+
+.hermes-kanban-boardstrip {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.hermes-kanban-boardstrip-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: stretch;
+}
+
+.hermes-kanban-boardbtn {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 0.125rem;
+  min-width: 8.5rem;
+  padding: 0.4rem 0.7rem;
+  border-radius: var(--radius, 0.5rem);
+  border: 1px solid var(--color-border, #2a2a2a);
+  background: var(--color-card, #1c1c1c);
+  color: var(--color-foreground, #e5e5e5);
+  font-size: 0.8125rem;
+  line-height: 1.15;
+  cursor: pointer;
+  text-align: left;
+  transition: filter 120ms ease, transform 120ms ease, box-shadow 120ms ease;
+}
+.hermes-kanban-boardbtn:hover { filter: brightness(1.12); }
+.hermes-kanban-boardbtn:active { transform: translateY(1px); }
+.hermes-kanban-boardbtn:focus-visible {
+  outline: 2px solid var(--color-ring, #5b9bff);
+  outline-offset: 1px;
+}
+
+.hermes-kanban-boardbtn-name { font-weight: 600; }
+.hermes-kanban-boardbtn-count {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--color-muted-foreground, #9a9a9a);
+}
+.hermes-kanban-boardbtn-reason {
+  font-size: 0.6875rem;
+  line-height: 1.1;
+  color: var(--color-muted-foreground, #9a9a9a);
+}
+.hermes-kanban-boardbtn-reason--muted { opacity: 0.7; }
+
+/* Active (currently-viewed) board gets a visible inset ring. */
+.hermes-kanban-boardbtn--active {
+  box-shadow: 0 0 0 2px var(--color-ring, #5b9bff) inset;
+}
+
+/* State colors — each a distinct, status-legible fill. */
+.hermes-kanban-boardbtn--red {
+  border-color: var(--hermes-diag-critical, #e5484d);
+  background: color-mix(in srgb, var(--hermes-diag-critical, #e5484d) 16%, var(--color-card, #1c1c1c));
+  color: var(--hermes-diag-critical, #e5484d);
+}
+.hermes-kanban-boardbtn--red .hermes-kanban-boardbtn-reason {
+  color: color-mix(in srgb, var(--hermes-diag-critical, #e5484d) 80%, var(--color-foreground, #fff));
+  font-weight: 600;
+}
+.hermes-kanban-boardbtn--orange {
+  border-color: var(--hermes-diag-warning, #f5a623);
+  background: color-mix(in srgb, var(--hermes-diag-warning, #f5a623) 16%, var(--color-card, #1c1c1c));
+  color: var(--hermes-diag-warning, #f5a623);
+}
+.hermes-kanban-boardbtn--green {
+  border-color: #3fb950;
+  background: color-mix(in srgb, #3fb950 16%, var(--color-card, #1c1c1c));
+  color: #3fb950;
+}
+.hermes-kanban-boardbtn--blue {
+  border-color: #4a9eff;
+  background: color-mix(in srgb, #4a9eff 16%, var(--color-card, #1c1c1c));
+  color: #4a9eff;
+}
+.hermes-kanban-boardbtn--neutral {
+  opacity: 0.8;
+}
+
+/* Orange ring on a red button = attention AND agents still working.
+ * Outer box-shadow ring so it doesn't fight the inner active ring. */
+.hermes-kanban-boardbtn--ring-orange {
+  box-shadow: 0 0 0 2px var(--hermes-diag-warning, #f5a623);
+}
+
+.hermes-kanban-boardstrip-manage { display: flex; align-items: flex-start; gap: 0.5rem; }
+.hermes-kanban-boardstrip-managebtn {
+  font-size: 0.75rem;
+  padding: 0.25rem 0.55rem;
+  border-radius: var(--radius, 0.5rem);
+  border: 1px solid var(--color-border, #2a2a2a);
+  background: transparent;
+  color: var(--color-muted-foreground, #9a9a9a);
+  cursor: pointer;
+}
+.hermes-kanban-boardstrip-managebtn:hover { filter: brightness(1.2); }

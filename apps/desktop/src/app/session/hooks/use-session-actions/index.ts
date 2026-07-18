@@ -45,7 +45,8 @@ import {
   setSessionStartedAt,
   setSessionsTotal,
   setTurnStartedAt,
-  setYoloActive
+  setYoloActive,
+  updateLastOpenedAt
 } from '@/store/session'
 import { broadcastSessionsChanged } from '@/store/session-sync'
 import { isWatchWindow } from '@/store/windows'
@@ -588,6 +589,9 @@ export function useSessionActions({
         const runtimeInfo = applyRuntimeInfo(resumed.info)
 
         patchSessionWorkspace(storedSessionId, runtimeInfo?.cwd)
+
+        // S04: track last opened time for 'opened' recents sort mode
+        updateLastOpenedAt(storedSessionId)
 
         resumedRunning = Boolean((resumed as { running?: boolean }).running)
 

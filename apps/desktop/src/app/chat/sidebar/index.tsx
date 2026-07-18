@@ -102,13 +102,17 @@ import {
   pruneCompletedSessions,
   sessionPinId,
   setCurrentCwd,
+  setRecentsSortMode,
   setSessionCompleted,
   toggleKanban,
   togglePriority,
-  toggleSunset
+  toggleSunset,
+  updateLastOpenedAt,
+  $lastOpenedAt,
+  $recentsSortMode
 } from '@/store/session'
 import { refreshAllProfileSunsetIds } from '@/store/sunset-cross-profile'
-import { $allProfileKanbanIds, refreshAllProfileKanbanIds } from '@/store/kanban-cross-profile'
+import { $allProfileKanbanIds, isAutoKanbanSession, refreshAllProfileKanbanIds } from '@/store/kanban-cross-profile'
 
 import { type AppView, ARTIFACTS_ROUTE, MESSAGING_ROUTE, SKILLS_ROUTE } from '../../routes'
 import type { SidebarNavItem } from '../../types'
@@ -339,12 +343,22 @@ export function ChatSidebar({
     [sessions, showAllProfiles, profileScope]
   )
 
+  const recentsSortMode = useStore($recentsSortMode)
+  const lastOpenedAt = useStore($lastOpenedAt)
+
   // Agent session order is pinned to creation time (started_at), NOT activity —
   // a new message must never float a session to the top. Position only changes
   // for a brand-new session or an explicit manual drag (agentOrderIds).
+  // Exception: Recents sort mode 'opened' uses lastOpenedAt so reopens float to top.
   const sortedSessions = useMemo(
-    () => [...visibleSessions].sort((a, b) => (b.started_at || 0) - (a.started_at || 0)),
-    [visibleSessions]
+    () => {
+      if (recentsSortMode === 'opened') {
+        return [...visibleSessions].sort((a, b) => (lastOpenedAt[b.id] || 0) - (lastOpenedAt[a.id] || 0))
+      }
+
+      return [...visibleSessions].sort((a, b) => (b.started_at || 0) - (a.started_at || 0))
+    },
+    [visibleSessions, recentsSortMode, lastOpenedAt]
   )
 
   const workingSessionIdSet = useMemo(() => new Set(workingSessionIds), [workingSessionIds])
@@ -376,6 +390,21 @@ export function ChatSidebar({
   const allProfileKanbanIds = useStore($allProfileKanbanIds)
 
   const kanbanIdSet = useMemo(() => new Set(allProfileKanbanIds), [allProfileKanbanIds])
+
+  // Effective kanban set: manual toggles ∪ auto-detected (cwd/title pattern).
+  // Used to exclude kanban sessions from the flat Recents/Agents list so they
+  // only appear in the dedicated Kanban tier — not duplicated in both.
+  const effectiveKanbanIdSet = useMemo(() => {
+    const set = new Set(allProfileKanbanIds)
+
+    for (const s of allProfileSessions) {
+      if (isAutoKanbanSession(s)) {
+        set.add(s.id)
+      }
+    }
+
+    return set
+  }, [allProfileKanbanIds, allProfileSessions])
 
   const prioritySessionIdsValue = useStore($prioritySessionIds)
 
@@ -528,9 +557,10 @@ export function ChatSidebar({
 
       // Filter out working AND completed sessions from profile groups — they live in their own tabs
       // INV-9: priority sessions live in Priority tier — exclude from agent/recents to avoid duplication
-      return base.filter(s => !workingSessionIdSet.has(s.id) && !completedIdSet.has(s.id) && !priorityIdSet.has(s.id))
+      // Kanban sessions (manual or auto-detected) live in the Kanban tier — exclude here too.
+      return base.filter(s => !workingSessionIdSet.has(s.id) && !completedIdSet.has(s.id) && !priorityIdSet.has(s.id) && !effectiveKanbanIdSet.has(s.id))
     },
-    [unpinnedAgentSessions, agentOrderIds, agentOrderManual, workingSessionIdSet, completedIdSet, priorityIdSet]
+    [unpinnedAgentSessions, agentOrderIds, agentOrderManual, workingSessionIdSet, completedIdSet, priorityIdSet, effectiveKanbanIdSet]
   )
 
   // Recents are local-only: messaging-platform sessions are fetched as their

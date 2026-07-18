@@ -2010,6 +2010,154 @@ def _board_counts(slug: str) -> dict[str, int]:
         return {}
 
 
+# Statuses that indicate active agent work. Used by _board_health to find
+# tasks whose liveness signals (heartbeat / claim lock / failure counter)
+# should be inspected. Keep in sync with the dispatcher's "live" set.
+_LIVE_STATUSES = ("running", "active", "in_progress", "queued")
+
+# Statuses representing work that is ready to start but has not been picked
+# up. Used to detect a stalled board — prepared slices sitting idle.
+_READY_STATUSES = ("todo", "ready", "pending", "triage")
+
+# A "stalled-ready" board is one whose prepared slices have been waiting
+# longer than this without any agent picking them up. 6 hours matches the
+# dispatcher's long-idle reclaim horizon (see kanban_db.DEFAULT_*).
+_STALLED_READY_HORIZON_SECONDS = 6 * 60 * 60
+
+
+def _board_health(slug: str) -> dict[str, Any]:
+    """Compute a board's attention-state for the colored overview strip.
+
+    Returns a dict with aggregate flags (booleans) and a ``reasons`` list of
+    human-readable strings explaining WHY the board needs attention. The
+    dashboard renders the reasons inline on red buttons so the operator
+    never has to menu-dive to find the blocking cause.
+
+    Schema::
+
+        {
+          "blocked_count":   int,   # tasks with status = "blocked"
+          "failing_workers":  int,   # tasks with consecutive_failures >= DEFAULT_FAILURE_LIMIT
+          "stale_heartbeats": int,   # live tasks whose last_heartbeat_at is older than MAX_STALE
+          "expired_claims":   int,   # live tasks whose claim_expires < now
+          "stalled_ready":    int,   # ready/todo slices idle > STALLED_HORIZON with no agent
+          "needs_attention":  bool,  # any of the above is non-zero
+          "reasons":          list[str]   # short, action-oriented explanations
+        }
+
+    Safe on an empty or unreadable DB — returns zeros + empty reasons.
+    """
+    empty: dict[str, Any] = {
+        "blocked_count": 0,
+        "failing_workers": 0,
+        "stale_heartbeats": 0,
+        "expired_claims": 0,
+        "stalled_ready": 0,
+        "needs_attention": False,
+        "reasons": [],
+    }
+    try:
+        path = kanban_db.kanban_db_path(board=slug)
+        if not path.exists():
+            return empty
+        # Pull the threshold constants from kanban_db so we stay in sync with
+        # upstream's definition of "failing" and "stale" rather than
+        # hardcoding numbers that drift.
+        failure_limit = getattr(kanban_db, "DEFAULT_FAILURE_LIMIT", 2)
+        max_stale = getattr(kanban_db, "DEFAULT_CLAIM_HEARTBEAT_MAX_STALE_SECONDS", 3600)
+        now = int(time.time())
+
+        conn = kanban_db.connect(board=slug)
+        try:
+            cur = conn.cursor()
+
+            # Blocked slices — the literal "needs attention" signal.
+            cur.execute(
+                "SELECT COUNT(*) FROM tasks WHERE status = 'blocked'"
+            )
+            blocked_count = int(cur.fetchone()[0] or 0)
+
+            # Repeatedly-failing workers — consecutive_failures >= limit.
+            # These tasks may still be status='running' but the worker has
+            # crash-looped past the circuit breaker threshold.
+            cur.execute(
+                "SELECT COUNT(*) FROM tasks WHERE consecutive_failures >= ?",
+                (failure_limit,),
+            )
+            failing_workers = int(cur.fetchone()[0] or 0)
+
+            # Stale heartbeats — a live task whose heartbeat is older than
+            # the max-stale window is a zombie worker (process died without
+            # updating status). last_heartbeat_at is an epoch-second int.
+            cur.execute(
+                "SELECT COUNT(*) FROM tasks "
+                "WHERE status IN ({0}) "
+                "AND last_heartbeat_at IS NOT NULL "
+                "AND last_heartbeat_at > 0 "
+                "AND (? - last_heartbeat_at) > ?".format(
+                    ",".join("?" * len(_LIVE_STATUSES))
+                ),
+                (*_LIVE_STATUSES, now, max_stale),
+            )
+            stale_heartbeats = int(cur.fetchone()[0] or 0)
+
+            # Expired claim locks — a live task whose claim_expires is in
+            # the past is orphaned: the dispatcher may reclaim it, but until
+            # it does the slice is stuck in limbo.
+            cur.execute(
+                "SELECT COUNT(*) FROM tasks "
+                "WHERE status IN ({0}) "
+                "AND claim_expires IS NOT NULL "
+                "AND claim_expires > 0 "
+                "AND claim_expires < ?".format(
+                    ",".join("?" * len(_LIVE_STATUSES))
+                ),
+                (*_LIVE_STATUSES, now),
+            )
+            expired_claims = int(cur.fetchone()[0] or 0)
+
+            # Stalled-ready — prepared slices sitting idle past the horizon.
+            # Uses started_at IS NULL to mean "never picked up" (a started
+            # slice has been claimed at least once). created_at is the
+            # enqueue time.
+            cur.execute(
+                "SELECT COUNT(*) FROM tasks "
+                "WHERE status IN ({0}) "
+                "AND started_at IS NULL "
+                "AND created_at IS NOT NULL "
+                "AND (? - created_at) > ?".format(
+                    ",".join("?" * len(_READY_STATUSES))
+                ),
+                (*_READY_STATUSES, now, _STALLED_READY_HORIZON_SECONDS),
+            )
+            stalled_ready = int(cur.fetchone()[0] or 0)
+        finally:
+            conn.close()
+    except Exception:
+        return empty
+
+    reasons: list[str] = []
+    if blocked_count > 0:
+        reasons.append(f"{blocked_count} blocked slice{('s') if blocked_count != 1 else ''}")
+    if failing_workers > 0:
+        reasons.append(f"{failing_workers} crash-looping worker{('s') if failing_workers != 1 else ''} (≥{failure_limit} failures)")
+    if stale_heartbeats > 0:
+        reasons.append(f"{stale_heartbeats} zombie worker{('s') if stale_heartbeats != 1 else ''} (heartbeat stale >{max_stale // 60}min)")
+    if expired_claims > 0:
+        reasons.append(f"{expired_claims} expired claim{('s') if expired_claims != 1 else ''}")
+    if stalled_ready > 0:
+        reasons.append(f"{stalled_ready} stalled slice{('s') if stalled_ready != 1 else ''} (idle >{_STALLED_READY_HORIZON_SECONDS // 3600}h)")
+
+    empty["blocked_count"] = blocked_count
+    empty["failing_workers"] = failing_workers
+    empty["stale_heartbeats"] = stale_heartbeats
+    empty["expired_claims"] = expired_claims
+    empty["stalled_ready"] = stalled_ready
+    empty["needs_attention"] = bool(reasons)
+    empty["reasons"] = reasons
+    return empty
+
+
 def _default_workspace_kind(board: dict[str, Any]) -> str:
     """Recommend a non-destructive task workspace from board metadata."""
     workdir = str(board.get("default_workdir") or "").strip()
@@ -2030,6 +2178,7 @@ def list_boards(include_archived: bool = Query(False)):
         b["is_current"] = (b["slug"] == current)
         b["counts"] = _board_counts(b["slug"])
         b["total"] = sum(b["counts"].values())
+        b["health"] = _board_health(b["slug"])
         b["default_workspace_kind"] = _default_workspace_kind(b)
     return {"boards": boards, "current": current}
 

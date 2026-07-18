@@ -4,7 +4,7 @@ import { lastVisibleMessageIsUser } from '@/app/chat/thread-loading'
 import type { ContextSuggestion } from '@/app/types'
 import type { HermesConnection } from '@/global'
 import type { ChatMessage } from '@/lib/chat-messages'
-import { persistBoolean, persistString, persistStringArray, storedBoolean, storedString, storedStringArray } from '@/lib/storage'
+import { persistBoolean, persistString, persistStringArray, persistStringRecord, storedBoolean, storedString, storedStringArray, storedStringRecord } from '@/lib/storage'
 import type { SessionInfo, UsageStats } from '@/types/hermes'
 
 import { $completedTtlSetting } from './layout'
@@ -248,6 +248,32 @@ export const $workingSessionIds = atom<string[]>([])
 // Session numbering atoms (reactive for UI)
 export const $sessionNumberingEnabled = atom(getSessionNumberingEnabled())
 export const $sessionNumberingCounter = atom(getSessionNumberingCounter())
+
+// S04: Recents sort mode — 'created' (default, by started_at) or 'opened' (by
+// lastOpenedAt, so reopens float to top). Persisted via localStorage.
+const RECENTS_SORT_MODE_KEY = 'hermes.desktop.recentsSortMode'
+export type RecentsSortMode = 'created' | 'opened'
+export const $recentsSortMode = atom<RecentsSortMode>(
+  (storedString(RECENTS_SORT_MODE_KEY) as RecentsSortMode) ?? 'created'
+)
+export const setRecentsSortMode = (mode: RecentsSortMode) => {
+  persistString(RECENTS_SORT_MODE_KEY, mode)
+  $recentsSortMode.set(mode)
+}
+
+// S04: lastOpenedAt map — sessionId -> timestamp (ms). Updated on every resume.
+// Persisted so 'opened' sort is meaningful across restarts.
+const LAST_OPENED_AT_KEY = 'hermes.desktop.lastOpenedAt'
+const rawLastOpenedAt = storedStringRecord(LAST_OPENED_AT_KEY)
+export const $lastOpenedAt = atom<Record<string, number>>(
+  Object.fromEntries(Object.entries(rawLastOpenedAt).map(([k, v]) => [k, Number(v)]))
+)
+export const updateLastOpenedAt = (sessionId: string, ts: number = Date.now()) => {
+  const current = $lastOpenedAt.get()
+  const next = { ...current, [sessionId]: ts }
+  $lastOpenedAt.set(next)
+  persistStringRecord(LAST_OPENED_AT_KEY, Object.fromEntries(Object.entries(next).map(([k, v]) => [k, String(v)])))
+}
 
 export const $activeSessionId = atom<string | null>(null)
 export const $selectedStoredSessionId = atom<string | null>(null)
