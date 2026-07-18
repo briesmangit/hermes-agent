@@ -35,6 +35,7 @@ import {
   $sidebarOpen,
   $sidebarOverlayMounted,
   $sidebarCompact,
+  $sidebarViewMode,
   $sidebarPinsOpen,
   $sidebarProjectOrderIds,
   $sidebarRecentsOpen,
@@ -115,6 +116,7 @@ import type { SidebarNavItem } from '../../types'
 import { countLabel } from './chrome'
 import { SidebarCronJobsSection } from './cron-jobs-section'
 import { FleetTierList } from './fleet-tier-list'
+import { MatrixView } from './matrix-view'
 import { SidebarLoadMoreRow } from './load-more-row'
 import { orderByIds, reconcileOrderIds, resolveManualSessionOrderIds, sameIds } from './order'
 import { ProfileSummaryBar } from './profile-summary-bar'
@@ -233,6 +235,7 @@ export function ChatSidebar({
   const s = t.sidebar
   const sidebarOpen = useStore($sidebarOpen)
   const compact = useStore($sidebarCompact)
+  const viewMode = useStore($sidebarViewMode)
   // Collapsed-but-overlay-mounted → render the full sidebar, not just the nav rail.
   const overlayMounted = useStore($sidebarOverlayMounted)
   const contentVisible = sidebarOpen || overlayMounted
@@ -1341,7 +1344,9 @@ export function ChatSidebar({
                 `FleetTierList` (see fleet-tier-list.tsx), scoped cross-profile
                 (INV-5) via `allProfileSessions` + `attentionSessionIds`
                 threaded into the FleetTierList call below. */}
-            {!trimmedQuery && (
+            {!trimmedQuery && viewMode === 'matrix' && <MatrixView />}
+
+            {!trimmedQuery && viewMode !== 'matrix' && (
               <FleetTierList
                 activeProjectId={activeProjectId}
                 activeSidebarSessionId={activeSidebarSessionId}

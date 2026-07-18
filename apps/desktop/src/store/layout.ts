@@ -35,6 +35,7 @@ const TERMINAL_DOCK_POSITION_STORAGE_KEY = 'hermes.desktop.terminalDockPosition'
 const TERMINAL_DOCK_HEIGHT_STORAGE_KEY = 'hermes.desktop.terminalDockHeight'
 const COMPLETED_TTL_STORAGE_KEY = 'hermes.desktop.completedTtlSetting'
 const SIDEBAR_COMPACT_STORAGE_KEY = 'hermes.desktop.sidebarCompact'
+const SIDEBAR_VIEW_MODE_STORAGE_KEY = 'hermes.desktop.sidebarViewMode'
 
 export const CHAT_SIDEBAR_PANE_ID = 'chat-sidebar'
 export const FILE_BROWSER_PANE_ID = 'file-browser'
@@ -156,6 +157,15 @@ export const $completedTtlSetting = persistentAtom<number>(
 // Q8: ultra-dense sidebar mode — 1-line rows, tighter spacing, hides secondary
 // metadata. Global UI-density preference, persisted so it survives reload.
 export const $sidebarCompact = persistentAtom(SIDEBAR_COMPACT_STORAGE_KEY, false, Codecs.bool)
+
+// Q9: sidebar view mode — 'tiered' (default FleetTierList) or 'matrix' (profile ×
+// session-type heat grid). Global UI preference, persisted.
+export type SidebarViewMode = 'tiered' | 'matrix'
+export const $sidebarViewMode = persistentAtom<SidebarViewMode>(
+  SIDEBAR_VIEW_MODE_STORAGE_KEY,
+  'tiered',
+  { decode: (raw: string) => (raw === 'matrix' ? 'matrix' : 'tiered') as SidebarViewMode, encode: (v: SidebarViewMode) => v }
+)
 // When true, the sessions sidebar moves to the right and the file browser +
 // preview rail move to the left — a mirror of the default layout.
 export const $panesFlipped = persistentAtom(PANES_FLIPPED_STORAGE_KEY, false, Codecs.bool)
@@ -305,6 +315,14 @@ export function setSidebarCompact(compact: boolean) {
 
 export function toggleSidebarCompact() {
   $sidebarCompact.set(!$sidebarCompact.get())
+}
+
+export function setSidebarViewMode(mode: SidebarViewMode) {
+  $sidebarViewMode.set(mode)
+}
+
+export function toggleSidebarViewMode() {
+  $sidebarViewMode.set($sidebarViewMode.get() === 'matrix' ? 'tiered' : 'matrix')
 }
 
 export function setSidebarSessionOrderIds(ids: string[]) {

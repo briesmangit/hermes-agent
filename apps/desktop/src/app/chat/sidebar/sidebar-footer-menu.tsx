@@ -21,11 +21,13 @@ import {
   $sidebarAgentsGrouped,
   $sidebarCompact,
   $sidebarSunsetVisible,
+  $sidebarViewMode,
   $terminalDockPosition,
   setCompletedTtlSetting,
   setSidebarAgentsGrouped,
   setSidebarCompact,
   setSidebarSunsetVisible,
+  setSidebarViewMode,
   setTerminalDockPosition
 } from '@/store/layout'
 import { $sessionNumberingEnabled, resetSessionNumberingCounter, setSessionNumberingEnabled } from '@/store/session'
@@ -80,6 +82,7 @@ export function SidebarFooterMenu() {
   const completedTtlMs = useStore($completedTtlSetting)
   const compact = useStore($sidebarCompact)
   const terminalDockPosition = useStore($terminalDockPosition)
+  const viewMode = useStore($sidebarViewMode)
 
   return (
     <DropdownMenu>
@@ -129,6 +132,12 @@ export function SidebarFooterMenu() {
           onCheckedChange={value => setTerminalDockPosition(value ? 'bottom' : 'right')}
         >
           Dock terminal to bottom
+        </DropdownMenuCheckboxItem>
+        <DropdownMenuCheckboxItem
+          checked={viewMode === 'matrix'}
+          onCheckedChange={value => setSidebarViewMode(value ? 'matrix' : 'tiered')}
+        >
+          Matrix view
         </DropdownMenuCheckboxItem>
         <DropdownMenuSeparator />
         <DropdownMenuSub>
