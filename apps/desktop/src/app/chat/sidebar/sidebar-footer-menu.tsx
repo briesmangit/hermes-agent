@@ -141,6 +141,25 @@ export function SidebarFooterMenu() {
           Matrix view
         </DropdownMenuCheckboxItem>
         <DropdownMenuSeparator />
+        {/* S04: Recents sort mode — 'Created' (by started_at) vs 'Opened' (by lastOpenedAt) */}
+        <DropdownMenuSub>
+          <DropdownMenuSubTrigger>{t.sidebar.sortCreated} / {t.sidebar.sortOpened}</DropdownMenuSubTrigger>
+          <DropdownMenuSubContent className="w-48">
+            <DropdownMenuRadioGroup
+              value={recentsSortMode}
+              onValueChange={value => setRecentsSortMode(value === 'opened' ? 'opened' : 'created')}
+            >
+              <DropdownMenuRadioItem value="created">
+                {t.sidebar.sortCreated}
+                <span className="ml-auto pl-4 text-(--ui-text-tertiary)">{t.sidebar.sortByCreated}</span>
+              </DropdownMenuRadioItem>
+              <DropdownMenuRadioItem value="opened">
+                {t.sidebar.sortOpened}
+                <span className="ml-auto pl-4 text-(--ui-text-tertiary)">{t.sidebar.sortByOpened}</span>
+              </DropdownMenuRadioItem>
+            </DropdownMenuRadioGroup>
+          </DropdownMenuSubContent>
+        </DropdownMenuSub>
         <DropdownMenuSub>
           <DropdownMenuSubTrigger>{s.completedTtlLabel}</DropdownMenuSubTrigger>
           <DropdownMenuSubContent className="w-40">
