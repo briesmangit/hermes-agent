@@ -263,7 +263,9 @@
     --ui-sash-hover-background: color-mix(in srgb, var(--ui-accent) 6%, transparent);
     --ui-surface-background: var(--ui-bg-editor);
     --ui-sidebar-surface-background: var(--ui-bg-sidebar);
-    --ui-chat-surface-background: var(--ui-bg-chrome);
+    /* SLICE-01: flat mono chat background. Default (light) theme uses a flat
+       off-white so the message area reads as a calm, texture-free surface. */
+    --ui-chat-surface-background: #fafafa;
     --ui-editor-surface-background: var(--ui-bg-chrome);
     --ui-chat-bubble-background: color-mix(
       in srgb,
@@ -383,7 +385,7 @@
     --image-preview-height: clamp(16.25rem, calc(var(--vsq) * 100), 26.25rem);
 
     --sidebar-width: 14.8125rem;
-    --chat-min-width: 22rem;
+    --chat-min-width: 20rem;
     --titlebar-control-size: 1.25rem;
     --titlebar-control-height: 1.375rem;
     --sidebar-content-inline-padding: 1rem;
@@ -437,9 +439,16 @@
     --ui-selection-background: color-mix(in srgb, #ffd24a 38%, transparent);
   }
 
-  /* Mono dark theme: flat grey chat surface, no blur/noise */
+  /* SLICE-01: flat mono chat background for the default dark theme — solid
+     #1e1e1e, no chrome gradient blur. The chat surface is the largest area of
+     the app, so flattening it removes the only remaining texture. */
+  :root.dark {
+    --ui-chat-surface-background: #1e1e1e;
+  }
+
+  /* Mono dark theme: flat grey chat surface. */
   :root[data-hermes-theme="mono"].dark {
-    --ui-chat-surface-background: #1a1a1a;
+    --ui-chat-surface-background: #1e1e1e;
   }
 
   * {
