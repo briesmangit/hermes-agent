@@ -33,6 +33,7 @@ const PANES_FLIPPED_STORAGE_KEY = 'hermes.desktop.panesFlipped'
 const RIGHT_RAIL_ACTIVE_TAB_STORAGE_KEY = 'hermes.desktop.rightRailActiveTab'
 const TERMINAL_DOCK_POSITION_STORAGE_KEY = 'hermes.desktop.terminalDockPosition'
 const TERMINAL_DOCK_HEIGHT_STORAGE_KEY = 'hermes.desktop.terminalDockHeight'
+const COMPLETED_TTL_STORAGE_KEY = 'hermes.desktop.completedTtlSetting'
 
 export const CHAT_SIDEBAR_PANE_ID = 'chat-sidebar'
 export const FILE_BROWSER_PANE_ID = 'file-browser'
@@ -144,6 +145,13 @@ export const $sidebarAgentsGrouped = persistentAtom(SIDEBAR_AGENTS_GROUPED_STORA
 // hide it without losing the toggled-sunset session data. S05 wires it into the
 // cross-profile Sunset render path; for now the local section gate honors it.
 export const $sidebarSunsetVisible = persistentAtom(SIDEBAR_SUNSET_VISIBLE_STORAGE_KEY, true, Codecs.bool)
+// Configurable Completed tier TTL (time-to-live) in milliseconds. Default 30min.
+// 0 means "sticky" (stays until cleared by user). Global scope: it's a UI density preference.
+export const $completedTtlSetting = persistentAtom<number>(
+  COMPLETED_TTL_STORAGE_KEY,
+  30 * 60 * 1000,
+  { decode: (raw: string) => Math.max(0, parseInt(raw, 10) || 0), encode: (v: number) => String(v) }
+)
 // When true, the sessions sidebar moves to the right and the file browser +
 // preview rail move to the left — a mirror of the default layout.
 export const $panesFlipped = persistentAtom(PANES_FLIPPED_STORAGE_KEY, false, Codecs.bool)
@@ -281,6 +289,10 @@ export function setSidebarAgentsGrouped(grouped: boolean) {
 
 export function setSidebarSunsetVisible(visible: boolean) {
   $sidebarSunsetVisible.set(visible)
+}
+
+export function setCompletedTtlSetting(ms: number) {
+  $completedTtlSetting.set(ms)
 }
 
 export function setSidebarSessionOrderIds(ids: string[]) {

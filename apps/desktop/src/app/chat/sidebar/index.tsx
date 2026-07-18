@@ -25,6 +25,7 @@ import { normalizeSessionSource, sessionSourceLabel } from '@/lib/session-source
 import { cn } from '@/lib/utils'
 import { $cronJobs } from '@/store/cron'
 import {
+  $completedTtlSetting,
   $dismissedAutoProjectIds,
   $panesFlipped,
   $pinnedSessionIds,
@@ -802,15 +803,24 @@ export function ChatSidebar({
 
   // Consolidated 1s tick: prunes expired completions AND bumps shared $completedTick
   // atom for per-row countdown re-renders (S07 clock consolidation).
+  // Sticky mode (TTL = 0): skip auto-prune entirely; rows leave only on user gesture.
+  const completedTtlMs = useStore($completedTtlSetting)
   useEffect(() => {
     if (completedSessions.length === 0) {
       return
     }
 
+    if (completedTtlMs === 0) {
+      // Still bump the tick so any future non-sticky rows render their countdown.
+      const interval = setInterval(() => { bumpCompletedTick(); }, 1000);
+
+      return () => clearInterval(interval)
+    }
+
     const interval = setInterval(() => { pruneCompletedSessions(); bumpCompletedTick(); }, 1000);
 
     return () => clearInterval(interval)
-  }, [completedSessions.length])
+  }, [completedSessions.length, completedTtlMs])
 
   // Clear completed status only on explicit user gestures (pin toggle or
   // archive / delete handlers). Clicking a completed row OPENS the session

@@ -7,6 +7,8 @@ import type { ChatMessage } from '@/lib/chat-messages'
 import { persistBoolean, persistString, persistStringArray, storedBoolean, storedString, storedStringArray } from '@/lib/storage'
 import type { SessionInfo, UsageStats } from '@/types/hermes'
 
+import { $completedTtlSetting } from './layout'
+
 type Updater<T> = T | ((current: T) => T)
 
 const WORKSPACE_CWD_KEY = 'hermes.desktop.workspace-cwd'
@@ -557,11 +559,15 @@ export function setSessionAttention(sessionId: string | null | undefined, needsI
 // distinct from $attentionSessionIds (which only covers sessions blocked on a
 // clarify prompt). A completed-task session is idle, not blocked: the agent
 // has a result for the user to read, a decision to make, or follow-up work to
-// approve. Sessions stay in the "Completed" section for COMPLETED_TTL_MS, then
+// approve. Sessions stay in the "Completed" section, then
 // auto-prune so the section never accumulates stale entries. Clicks on a
 // completed row OPEN the session (no longer clearing completion immediately
 // — that was the vanish-on-click bug; explicit clearing is user-gesture only).
-export const COMPLETED_TTL_MS = 10 * 60 * 1000 // 10 minutes (user-requested)
+
+export function getCompletedTtlMs(): number {
+  return $completedTtlSetting.get()
+}
+
 const completedSessionExpiry = new Map<string, number>()
 
 export const $completedSessionIds = atom<string[]>([])
@@ -582,7 +588,10 @@ export function setSessionCompleted(sessionId: string | null | undefined, comple
   toggleMembership(setCompletedSessionIds, sessionId, completed)
 
   if (completed) {
-    completedSessionExpiry.set(sessionId, Date.now() + COMPLETED_TTL_MS)
+    // Sticky mode (TTL = 0): no expiry — rows stay until user clears them.
+    // Map stores Infinity so prune loop never matches (expiry <= now is false).
+    const ttl = getCompletedTtlMs()
+    completedSessionExpiry.set(sessionId, ttl === 0 ? Number.POSITIVE_INFINITY : Date.now() + ttl)
   } else {
     completedSessionExpiry.delete(sessionId)
   }
@@ -614,7 +623,11 @@ export function pruneCompletedSessions(now: number = Date.now()): boolean {
 export function completedSecondsRemaining(sessionId: string, now: number = Date.now()): number {
   const expiry = completedSessionExpiry.get(sessionId)
 
-  return expiry ? Math.max(0, Math.ceil((expiry - now) / 1000)) : 0
+  if (!expiry || !Number.isFinite(expiry)) {
+    return 0
+  }
+
+  return Math.max(0, Math.ceil((expiry - now) / 1000))
 }
 
 /** Stored ids of sessions marked completed within the expiry window. Prunes
