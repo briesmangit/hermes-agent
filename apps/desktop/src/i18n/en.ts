@@ -1662,7 +1662,8 @@ export const en: Translations = {
       ageNow: 'now',
       ageDay: 'd',
       ageHour: 'h',
-      ageMin: 'm'
+      ageMin: 'm',
+      lastTouched: 'Last touched'
     }
   },
 

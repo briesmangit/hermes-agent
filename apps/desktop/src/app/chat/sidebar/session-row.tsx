@@ -14,9 +14,9 @@ import { sessionTitle } from '@/lib/chat-runtime'
 import { triggerHaptic } from '@/lib/haptics'
 import { profileColor } from '@/lib/profile-color'
 import { handoffOriginSource, sessionSourceLabel } from '@/lib/session-source'
-import { coarseElapsed } from '@/lib/time'
+import { ageHeatColor, coarseElapsed } from '@/lib/time'
 import { cn } from '@/lib/utils'
-import { $attentionSessionIds, $sessionNumberingEnabled } from '@/store/session'
+import { $attentionSessionIds, $sessionNumberingEnabled, $sidebarAgeTick } from '@/store/session'
 import { canOpenSessionWindow, openSessionInNewWindow } from '@/store/windows'
 
 import { SidebarRowBody, SidebarRowGrab, SidebarRowLabel, SidebarRowLead, SidebarRowShell } from './chrome'
@@ -85,7 +85,14 @@ export function SidebarSessionRow({
     const { t } = useI18n()
     const r = t.sidebar.row
     const title = sessionTitle(session)
+    // 60s age tick subscription — recomputes ageColor so heat stays current.
+    useStore($sidebarAgeTick)
+    const ageSeconds = (Date.now() - (session.last_active || session.started_at) * 1000) / 1000
     const age = formatAge(session.last_active || session.started_at, r)
+    // Recency heat: green (fresh) → red (stale). Always on, so stale sessions
+    // are obvious at a glance without hovering — this is the "wrong session"
+    // confusion fix. Recomputes each render; the live tick below forces it.
+    const ageColor = ageHeatColor(ageSeconds)
     const handleLabel = `Reorder ${title}`
     const numberingEnabled = useStore($sessionNumberingEnabled)
     // A handed-off session's live source is local, but it originated on a
@@ -137,7 +144,11 @@ export function SidebarSessionRow({
                 <ActivityTimerText className="absolute right-6 top-1/2 min-w-6 -translate-y-1/2 text-right text-[0.625rem] leading-none tabular-nums" seconds={elapsedSec} />
               )}
               {!isWorking && (
-                <span className="pointer-events-none absolute right-6 top-1/2 min-w-6 -translate-y-1/2 text-right text-[0.625rem] leading-none text-(--ui-text-tertiary) opacity-0 transition-opacity group-hover/session-row:opacity-100">
+                <span
+                  className="pointer-events-none absolute right-6 top-1/2 min-w-6 -translate-y-1/2 text-right text-[0.625rem] leading-none tabular-nums"
+                  style={{ color: ageColor }}
+                  title={`${r.lastTouched}: ${age}`}
+                >
                   {age}
                 </span>
               )}
@@ -199,6 +210,16 @@ export function SidebarSessionRow({
           {...rest}
         >
         {isWorking && !needsInput && <span aria-hidden="true" className="arc-border" />}
+        {/* Recency heat strip: thin left bar green→red by last-active age. Layers
+            inside the profile-color left border (which stays on the very edge). */}
+        {!isWorking && (
+          <span
+            aria-hidden="true"
+            className="absolute left-0 top-1 bottom-1 w-[2px] rounded-full"
+            style={{ backgroundColor: ageColor }}
+            title={`${r.lastTouched}: ${age}`}
+          />
+        )}
         <SidebarRowBody
           className={cn('z-0 group-hover/session-row:pr-12', branchStem && 'pl-3.5')}
           onClick={event => {

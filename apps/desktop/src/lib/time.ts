@@ -52,6 +52,30 @@ export function relativeTime(targetMs: number, nowMs = Date.now()): string {
 
 export type ElapsedUnit = 'day' | 'hour' | 'minute' | 'second'
 
+// ── Sidebar age heat ────────────────────────────────────────────────────────
+// Maps seconds-since-last-touch to a recency color so the user can see at a
+// glance what's fresh vs stale WITHOUT reading a timestamp. Returns an hsl()
+// string. The ramp is tuned to stay within the app's calm palette:
+//   ≤15m  → green (fresh, recently opened/touched)
+//   15m–1h → green→amber
+//   1h–1d  → amber→red-orange
+//   >1d    → muted red (stale — the usual "wrong session" trap)
+// Hue 145 (green) → 18 (red), lightness held steady so text stays legible.
+export function ageHeatColor(secondsSinceTouch: number): string {
+  const s = Math.max(0, secondsSinceTouch)
+  const GREEN = 145
+  const RED = 18
+  const STALE = 24 * 60 * 60
+  const t = Math.min(1, s / STALE)
+  const eased = t * t * (3 - 2 * t) // smoothstep
+  const hue = GREEN + (RED - GREEN) * eased
+
+  return `hsl(${hue.toFixed(0)} 70% 52%)`
+}
+
+export const AGE_FRESH_SEC = 15 * 60
+export const AGE_STALE_SEC = 24 * 60 * 60
+
 // Coarsest elapsed bucket for a (clamped-nonnegative) duration, floored. The
 // caller owns rendering — compact "5m", "5m ago", etc. — so no format is baked
 // in here.
