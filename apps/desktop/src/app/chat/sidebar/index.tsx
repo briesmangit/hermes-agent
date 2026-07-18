@@ -24,23 +24,24 @@ import { sessionMatchesSearch } from '@/lib/session-search'
 import { normalizeSessionSource, sessionSourceLabel } from '@/lib/session-source'
 import { cn } from '@/lib/utils'
 import { $cronJobs } from '@/store/cron'
+import { $allProfileKanbanIds, isAutoKanbanSession, refreshAllProfileKanbanIds } from '@/store/kanban-cross-profile'
 import {
   $completedTtlSetting,
   $dismissedAutoProjectIds,
   $panesFlipped,
   $pinnedSessionIds,
   $sidebarAgentsGrouped,
+  $sidebarCompact,
   $sidebarCronOpen,
   $sidebarMessagingOpenIds,
   $sidebarOpen,
   $sidebarOverlayMounted,
-  $sidebarCompact,
-  $sidebarViewMode,
   $sidebarPinsOpen,
   $sidebarProjectOrderIds,
   $sidebarRecentsOpen,
   $sidebarSessionOrderIds,
   $sidebarSessionOrderManual,
+  $sidebarViewMode,
   $sidebarWorkspaceOrderIds,
   $sidebarWorkspaceParentOrderIds,
   pinSession,
@@ -86,10 +87,12 @@ import {
   $cronSessions,
   $currentCwd,
   $gatewayState,
+  $lastOpenedAt,
   $messagingPlatformTotals,
   $messagingSessions,
   $messagingTruncated,
   $prioritySessionIds,
+  $recentsSortMode,
   $selectedStoredSessionId,
   $sessionNumberingEnabled,
   $sessionProfileTotals,
@@ -105,12 +108,9 @@ import {
   setSessionCompleted,
   toggleKanban,
   togglePriority,
-  toggleSunset,
-  $lastOpenedAt,
-  $recentsSortMode
+  toggleSunset
 } from '@/store/session'
 import { refreshAllProfileSunsetIds } from '@/store/sunset-cross-profile'
-import { $allProfileKanbanIds, isAutoKanbanSession, refreshAllProfileKanbanIds } from '@/store/kanban-cross-profile'
 
 import { type AppView, ARTIFACTS_ROUTE, MESSAGING_ROUTE, SKILLS_ROUTE } from '../../routes'
 import type { SidebarNavItem } from '../../types'
@@ -118,8 +118,8 @@ import type { SidebarNavItem } from '../../types'
 import { countLabel } from './chrome'
 import { SidebarCronJobsSection } from './cron-jobs-section'
 import { FleetTierList } from './fleet-tier-list'
-import { MatrixView } from './matrix-view'
 import { SidebarLoadMoreRow } from './load-more-row'
+import { MatrixView } from './matrix-view'
 import { orderByIds, reconcileOrderIds, resolveManualSessionOrderIds, sameIds } from './order'
 import { ProfileSummaryBar } from './profile-summary-bar'
 import { ProfileRail } from './profile-switcher'
@@ -1402,8 +1402,8 @@ export function ChatSidebar({
                 onLoadMoreRecents={onLoadMoreRecents}
                 onNewSessionInWorkspace={onNewSessionInWorkspace}
                 onResumeSession={onResumeSession}
-                onTogglePriority={togglePriorityFor}
                 onToggleKanban={toggleKanbanFor}
+                onTogglePriority={togglePriorityFor}
                 openProjectCreate={openProjectCreate}
                 overviewPreviews={overviewPreviews}
                 pinnedSessions={pinnedSessions}

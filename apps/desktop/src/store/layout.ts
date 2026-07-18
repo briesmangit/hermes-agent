@@ -26,9 +26,11 @@ export const sidebarViewModeAtom = atom<SidebarViewMode>('tiered')
 // Persist view mode to localStorage
 if (typeof window !== 'undefined') {
   const stored = localStorage.getItem(SIDEBAR_VIEW_MODE_STORAGE_KEY)
+
   if (stored === 'tiered' || stored === 'matrix') {
     sidebarViewModeAtom.set(stored)
   }
+
   sidebarViewModeAtom.subscribe(value => {
     localStorage.setItem(SIDEBAR_VIEW_MODE_STORAGE_KEY, value)
   })

@@ -146,8 +146,8 @@ export function SidebarFooterMenu() {
           <DropdownMenuSubTrigger>{t.sidebar.sortCreated} / {t.sidebar.sortOpened}</DropdownMenuSubTrigger>
           <DropdownMenuSubContent className="w-48">
             <DropdownMenuRadioGroup
-              value={recentsSortMode}
               onValueChange={value => setRecentsSortMode(value === 'opened' ? 'opened' : 'created')}
+              value={recentsSortMode}
             >
               <DropdownMenuRadioItem value="created">
                 {t.sidebar.sortCreated}
