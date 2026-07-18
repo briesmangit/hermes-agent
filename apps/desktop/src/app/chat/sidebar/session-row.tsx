@@ -46,6 +46,8 @@ interface SidebarSessionRowProps extends React.ComponentProps<'div'> {
   dragHandleProps?: React.HTMLAttributes<HTMLElement>
   /** Optional extra content rendered after the label (e.g. countdown badge for completed rows). */
   children?: React.ReactNode
+  /** Optional full-width strip rendered at the bottom edge of the row (e.g. TTL/age bar). */
+  footerBar?: React.ReactNode
 }
 
 const AGE_KEY = { day: 'ageDay', hour: 'ageHour', minute: 'ageMin' } as const
@@ -80,6 +82,7 @@ export function SidebarSessionRow({
     style,
     ref,
     children,
+    footerBar,
     ...rest
   }: SidebarSessionRowProps) {
     const { t } = useI18n()
@@ -322,6 +325,9 @@ export function SidebarSessionRow({
           >
             {session.preview ?? session.title ?? ''}
           </div>
+        )}
+        {footerBar && (
+          <div className="pointer-events-none absolute inset-x-0 bottom-0 z-0 h-[3px]">{footerBar}</div>
         )}
       </SidebarRowShell>
     </SessionContextMenu>
