@@ -16,6 +16,24 @@ export const FILE_BROWSER_MAX_WIDTH = '20rem'
 
 export const SIDEBAR_SESSIONS_PAGE_SIZE = 50
 
+// Sidebar view mode: 'tiered' (default tiered sidebar) | 'matrix' (fleet matrix overlay)
+export type SidebarViewMode = 'tiered' | 'matrix'
+
+const SIDEBAR_VIEW_MODE_STORAGE_KEY = 'hermes.desktop.sidebarViewMode'
+
+export const sidebarViewModeAtom = atom<SidebarViewMode>('tiered')
+
+// Persist view mode to localStorage
+if (typeof window !== 'undefined') {
+  const stored = localStorage.getItem(SIDEBAR_VIEW_MODE_STORAGE_KEY)
+  if (stored === 'tiered' || stored === 'matrix') {
+    sidebarViewModeAtom.set(stored)
+  }
+  sidebarViewModeAtom.subscribe(value => {
+    localStorage.setItem(SIDEBAR_VIEW_MODE_STORAGE_KEY, value)
+  })
+}
+
 const SIDEBAR_PINNED_STORAGE_KEY = 'hermes.desktop.pinnedSessions'
 const SIDEBAR_AGENTS_GROUPED_STORAGE_KEY = 'hermes.desktop.agentsGroupedByWorkspace'
 const SIDEBAR_SUNSET_VISIBLE_STORAGE_KEY = 'hermes.desktop.sidebarSunsetVisible'
@@ -35,7 +53,6 @@ const TERMINAL_DOCK_POSITION_STORAGE_KEY = 'hermes.desktop.terminalDockPosition'
 const TERMINAL_DOCK_HEIGHT_STORAGE_KEY = 'hermes.desktop.terminalDockHeight'
 const COMPLETED_TTL_STORAGE_KEY = 'hermes.desktop.completedTtlSetting'
 const SIDEBAR_COMPACT_STORAGE_KEY = 'hermes.desktop.sidebarCompact'
-const SIDEBAR_VIEW_MODE_STORAGE_KEY = 'hermes.desktop.sidebarViewMode'
 
 export const CHAT_SIDEBAR_PANE_ID = 'chat-sidebar'
 export const FILE_BROWSER_PANE_ID = 'file-browser'
@@ -158,14 +175,10 @@ export const $completedTtlSetting = persistentAtom<number>(
 // metadata. Global UI-density preference, persisted so it survives reload.
 export const $sidebarCompact = persistentAtom(SIDEBAR_COMPACT_STORAGE_KEY, false, Codecs.bool)
 
-// Q9: sidebar view mode — 'tiered' (default FleetTierList) or 'matrix' (profile ×
-// session-type heat grid). Global UI preference, persisted.
-export type SidebarViewMode = 'tiered' | 'matrix'
-export const $sidebarViewMode = persistentAtom<SidebarViewMode>(
-  SIDEBAR_VIEW_MODE_STORAGE_KEY,
-  'tiered',
-  { decode: (raw: string) => (raw === 'matrix' ? 'matrix' : 'tiered') as SidebarViewMode, encode: (v: SidebarViewMode) => v }
-)
+// Q9: $sidebarViewMode is an alias for the original sidebarViewModeAtom defined
+// at the top of this file (lines 24). We reuse it so index.tsx and matrix-view
+// can subscribe via a single atom.
+export const $sidebarViewMode = sidebarViewModeAtom
 // When true, the sessions sidebar moves to the right and the file browser +
 // preview rail move to the left — a mirror of the default layout.
 export const $panesFlipped = persistentAtom(PANES_FLIPPED_STORAGE_KEY, false, Codecs.bool)

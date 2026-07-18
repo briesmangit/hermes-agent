@@ -102,12 +102,10 @@ import {
   pruneCompletedSessions,
   sessionPinId,
   setCurrentCwd,
-  setRecentsSortMode,
   setSessionCompleted,
   toggleKanban,
   togglePriority,
   toggleSunset,
-  updateLastOpenedAt,
   $lastOpenedAt,
   $recentsSortMode
 } from '@/store/session'
