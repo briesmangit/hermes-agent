@@ -110,16 +110,6 @@ export function CompletedSection({
 
             return (
               <SidebarSessionRow
-                isPinned={false}
-                isSelected={session.id === activeSessionId}
-                isWorking={false}
-                key={session.id}
-                onArchive={() => onArchiveSession(session.id)}
-                onBranch={onBranchSession ? () => onBranchSession(session.id, session.profile) : undefined}
-                onDelete={() => onDeleteSession(session.id)}
-                onPin={() => onTogglePin(session.id)}
-                onResume={() => onResumeSession(session.id)}
-                session={session}
                 footerBar={
                   stickyMode ? (
                     // Sticky: rows persist until user clears them. Show a steady
@@ -151,6 +141,16 @@ export function CompletedSection({
                     })()
                   ) : null
                 }
+                isPinned={false}
+                isSelected={session.id === activeSessionId}
+                isWorking={false}
+                key={session.id}
+                onArchive={() => onArchiveSession(session.id)}
+                onBranch={onBranchSession ? () => onBranchSession(session.id, session.profile) : undefined}
+                onDelete={() => onDeleteSession(session.id)}
+                onPin={() => onTogglePin(session.id)}
+                onResume={() => onResumeSession(session.id)}
+                session={session}
               >
               </SidebarSessionRow>
             )
