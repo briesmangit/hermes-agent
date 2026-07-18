@@ -137,7 +137,7 @@ export function SidebarSessionRow({
                 <ActivityTimerText className="absolute right-6 top-1/2 min-w-6 -translate-y-1/2 text-right text-[0.625rem] leading-none tabular-nums" seconds={elapsedSec} />
               )}
               {!isWorking && (
-                <span className="pointer-events-none absolute right-6 top-1/2 min-w-6 -translate-y-1/2 text-right text-[0.625rem] leading-none text-(--ui-text-tertiary) opacity-0 transition-opacity group-hover:opacity-100">
+                <span className="pointer-events-none absolute right-6 top-1/2 min-w-6 -translate-y-1/2 text-right text-[0.625rem] leading-none text-(--ui-text-tertiary) opacity-0 transition-opacity group-hover/session-row:opacity-100">
                   {age}
                 </span>
               )}
@@ -157,7 +157,7 @@ export function SidebarSessionRow({
               >
                 <Button
                   aria-label={r.actionsFor(title)}
-                  className="size-5 rounded-[4px] bg-transparent text-transparent transition-colors duration-100 hover:bg-(--ui-control-active-background) hover:text-foreground focus-visible:bg-(--ui-control-active-background) focus-visible:text-foreground focus-visible:ring-0 data-[state=open]:bg-(--ui-control-active-background) data-[state=open]:text-foreground group-hover:text-(--ui-text-tertiary) [&_svg]:size-3.5!"
+                  className="size-5 rounded-[4px] bg-transparent text-transparent transition-colors duration-100 hover:bg-(--ui-control-active-background) hover:text-foreground focus-visible:bg-(--ui-control-active-background) focus-visible:text-foreground focus-visible:ring-0 data-[state=open]:bg-(--ui-control-active-background) data-[state=open]:text-foreground group-hover/session-row:text-(--ui-text-tertiary) [&_svg]:size-3.5!"
                   size="icon"
                   title={r.sessionActions}
                   variant="ghost"
@@ -168,7 +168,7 @@ export function SidebarSessionRow({
             </div>
           }
           className={cn(
-            'group row-hover relative',
+            'group/session-row row-hover relative',
             isSelected && 'bg-(--ui-row-active-background)',
             isWorking && 'text-foreground',
             sunsetDim && 'opacity-55 hover:opacity-100 focus-within:opacity-100',
@@ -200,7 +200,7 @@ export function SidebarSessionRow({
         >
         {isWorking && !needsInput && <span aria-hidden="true" className="arc-border" />}
         <SidebarRowBody
-          className={cn('z-0 group-hover:pr-12', branchStem && 'pl-3.5')}
+          className={cn('z-0 group-hover/session-row:pr-12', branchStem && 'pl-3.5')}
           onClick={event => {
             if (event.shiftKey) {
               event.preventDefault()
@@ -255,7 +255,7 @@ export function SidebarSessionRow({
               />
             </Tip>
           ) : null}
-          <SidebarRowLabel className="flex-1 font-normal group-hover:text-foreground group-data-[working=true]:text-foreground/90">
+          <SidebarRowLabel className="flex-1 font-normal group-hover/session-row:text-foreground group-data-[working=true]:text-foreground/90">
             {isSunset && (
               <span
                 aria-label={t.sidebar.sunset}
@@ -272,13 +272,15 @@ export function SidebarSessionRow({
             )}
             {title}
           </SidebarRowLabel>
-          {isWorking && session.preview && (
-            <div className="truncate text-[0.625rem] text-(--ui-text-tertiary) mt-0.5">
-              {session.preview}
-            </div>
-          )}
           {children}
         </SidebarRowBody>
+        {(isWorking && (session.preview || session.title)) && (
+          <div
+            className="pointer-events-none absolute left-0 right-0 top-full z-10 px-2 py-1 text-[0.6875rem] leading-none text-(--ui-text-quaternary) truncate bg-(--ui-sidebar-surface-background) border-b border-(--ui-border-subtle) opacity-0 transition-opacity duration-150 group-hover/session-row:opacity-100"
+          >
+            {session.preview ?? session.title ?? ''}
+          </div>
+        )}
       </SidebarRowShell>
     </SessionContextMenu>
   )
