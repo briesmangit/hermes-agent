@@ -276,6 +276,11 @@ def build_parser(parent_subparsers: argparse._SubParsersAction) -> argparse.Argu
     b_rm.add_argument("--delete", action="store_true",
                       help="Hard-delete the board directory instead of archiving it. "
                            "Default is to move it to boards/_archived/ so it's recoverable.")
+    b_rm.add_argument("--force", action="store_true",
+                      help="Bypass the 48-hour recent-completion guard. By default, "
+                           "`boards rm` refuses to archive a board whose most-recent "
+                           "completed task finished <48h ago — to prevent premature "
+                           "cleanup of freshly-delivered work. Use --force to override.")
 
     b_switch = boards_sub.add_parser(
         "switch", aliases=["use"],
@@ -1121,6 +1126,30 @@ def _cmd_boards_rm(args: argparse.Namespace) -> int:
     # the --delete flag belongs to the 'rm' subparser only.  Detect the alias
     # and treat it identically to `boards rm --delete` (fixes #23139).
     force_delete = getattr(args, "delete", False) or getattr(args, "boards_action", "") == "delete"
+    force_recent_guard = getattr(args, "force", False)
+
+    # 48-hour recent-completion guard (2026-07-18, user-directed):
+    # refuse to archive a board whose most-recent completed task finished
+    # less than 48 hours ago. Freshly-delivered work should stay visible
+    # on the active boards list; auto-cleanup (or a too-quick manual `rm`)
+    # hides the audit trail before it's been reviewed. `--force` overrides.
+    if not force_recent_guard:
+        try:
+            most_recent, age_sec = kb.most_recent_completion_age(args.slug)
+        except Exception:
+            # Board may not have a kanban.db yet, or be a fresh empty board;
+            # don't let an implementation detail block a user's rm.
+            most_recent, age_sec = None, None
+        if age_sec is not None and age_sec < 48 * 3600:
+            hours_ago = age_sec / 3600
+            print(
+                f"kanban boards rm: refusing to archive {args.slug!r} — its most "
+                f"recent task completed {hours_ago:.1f}h ago (< 48h). "
+                f"Pass --force to override.",
+                file=sys.stderr,
+            )
+            return 1
+
     try:
         res = kb.remove_board(args.slug, archive=not force_delete)
     except ValueError as exc:

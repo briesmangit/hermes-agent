@@ -784,6 +784,46 @@ def list_boards(*, include_archived: bool = True) -> list[dict]:
     return entries
 
 
+def most_recent_completion_age(slug: str) -> tuple[str | None, int | None]:
+    """Return ``(task_id, age_seconds)`` for the most recently completed task
+    on the named board, or ``(None, None)`` if the board has no kanban.db or
+    no completed tasks.
+
+    Used by the 48-hour recent-completion guard in ``kanban.py::_cmd_boards_rm``
+    to refuse premature archiving of freshly-delivered work. ``age_seconds``
+    is ``int(time.time()) - max(completed_at)``.
+
+    Raises nothing — caller wraps broad try/except for resilience against
+    schema drift or unreadable DBs.
+    """
+    import sqlite3
+    import time
+
+    normed = _normalize_board_slug(slug)
+    d = board_dir(normed)
+    db_path = d / "kanban.db"
+    if not db_path.exists():
+        return None, None
+
+    conn = sqlite3.connect(db_path, timeout=5)
+    try:
+        row = conn.execute(
+            # completed_at is stored as a unix epoch integer (seconds)
+            "SELECT id, completed_at FROM tasks "
+            "WHERE status = 'done' AND completed_at IS NOT NULL AND completed_at > 0 "
+            "ORDER BY completed_at DESC LIMIT 1"
+        ).fetchone()
+    finally:
+        conn.close()
+
+    if not row:
+        return None, None
+
+    task_id = row["id"] if isinstance(row, sqlite3.Row) else row[0]
+    completed_at = row["completed_at"] if isinstance(row, sqlite3.Row) else row[1]
+    return task_id, int(time.time()) - int(completed_at)
+
+
 def remove_board(slug: str, *, archive: bool = True) -> dict:
     """Remove or archive a board.
 
@@ -803,7 +843,6 @@ def remove_board(slug: str, *, archive: bool = True) -> dict:
     d = board_dir(normed)
     if not d.exists():
         raise ValueError(f"board {normed!r} does not exist")
-
     # If the user removed the currently-active board, revert to default.
     if get_current_board() == normed:
         clear_current_board()
