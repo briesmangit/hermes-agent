@@ -66,6 +66,11 @@ export function CompletedSection({
 
   const completedCount = completedSessions.length
 
+  // Subscribe to the TTL setting so sticky-mode is reactive. When 0 (sticky),
+  // rows auto-prune is suppressed — they leave only on user action (X/clear).
+  const completedTtlMs = useStore($completedTtlSetting)
+  const stickyMode = $completedTtlSetting.get() === 0
+
   // Subscribe to shared completed tick atom (S07 clock consolidation) for countdown re-render.
   useStore($completedTick)
 
@@ -115,11 +120,21 @@ export function CompletedSection({
                 onResume={() => onResumeSession(session.id)}
                 session={session}
               >
-                {remainingSec > 0 && (
+                {stickyMode ? (
+                  // Sticky: rows persist until user clears them. Show a muted pin glyph
+                  // instead of a countdown so it reads as "stays" rather than "expires".
+                  <span
+                    aria-label={s.completedTtlSticky}
+                    className="shrink-0 ml-1 text-[0.625rem] font-mono text-(--ui-text-quaternary) tabular-nums"
+                    title={s.completedTtlSticky}
+                  >
+                    •
+                  </span>
+                ) : remainingSec > 0 ? (
                   <span className="shrink-0 ml-1 text-[0.625rem] font-mono text-(--ui-text-tertiary) tabular-nums">
                     {formatCountdown(remainingSec)}
                   </span>
-                )}
+                ) : null}
               </SidebarSessionRow>
             )
           })}

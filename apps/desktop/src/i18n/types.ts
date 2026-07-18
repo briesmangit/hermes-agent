@@ -1277,6 +1277,12 @@ export interface Translations {
     clearSunset: string
     sunsetSection: string
     showSunset: string
+    completedTtlLabel: string
+    completedTtl5m: string
+    completedTtl15m: string
+    completedTtl30m: string
+    completedTtl1h: string
+    completedTtlSticky: string
     // Priority triage: a session the operator has flagged as priority.
     priority: string
     markPriority: string

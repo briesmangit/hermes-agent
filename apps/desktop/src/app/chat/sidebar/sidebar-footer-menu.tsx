@@ -7,16 +7,30 @@ import {
   DropdownMenuCheckboxItem,
   DropdownMenuContent,
   DropdownMenuLabel,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
   DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
   DropdownMenuTrigger
 } from '@/components/ui/dropdown-menu'
+import { useI18n } from '@/i18n'
 import {
+  $completedTtlSetting,
   $sidebarAgentsGrouped,
   $sidebarSunsetVisible,
+  setCompletedTtlSetting,
   setSidebarAgentsGrouped,
   setSidebarSunsetVisible
 } from '@/store/layout'
 import { $sessionNumberingEnabled, resetSessionNumberingCounter, setSessionNumberingEnabled } from '@/store/session'
+
+// Completed TTL options offered in the footer-gear selector. 0 means sticky
+// (rows remain in Completed until the user explicitly clears them). The value
+// lives in localStorage at `hermes.desktop.completedTtlSetting` (global scope,
+// NOT per-profile — it's a UI density preference). Default 30min.
+const COMPLETED_TTL_OPTIONS_MS = [5 * 60 * 1000, 15 * 60 * 1000, 30 * 60 * 1000, 60 * 60 * 1000, 0] as const
 
 // Reset counter is a one-shot action; render it as its own non-toggle row (and
 // only while numbering is on — there's no counter to reset when it's off).
@@ -54,9 +68,12 @@ function ResetCounterItem({ enabled }: { enabled: boolean }) {
 // new sunset-section visibility toggle. S05 owns the cross-profile Sunset
 // render gate; this slice just wires the visibility atom.
 export function SidebarFooterMenu() {
+  const { t } = useI18n()
+  const s = t.sidebar
   const numberingEnabled = useStore($sessionNumberingEnabled)
   const agentsGrouped = useStore($sidebarAgentsGrouped)
   const sunsetVisible = useStore($sidebarSunsetVisible)
+  const completedTtlMs = useStore($completedTtlSetting)
 
   return (
     <DropdownMenu>
@@ -95,6 +112,23 @@ export function SidebarFooterMenu() {
         >
           Show sunset section
         </DropdownMenuCheckboxItem>
+        <DropdownMenuSeparator />
+        <DropdownMenuSub>
+          <DropdownMenuSubTrigger>{s.completedTtlLabel}</DropdownMenuSubTrigger>
+          <DropdownMenuSubContent className="w-40">
+            <DropdownMenuRadioGroup
+              onValueChange={value => setCompletedTtlSetting(Number(value))}
+              value={String(completedTtlMs)}
+            >
+              <DropdownMenuRadioItem value={String(COMPLETED_TTL_OPTIONS_MS[0])}>{s.completedTtl5m}</DropdownMenuRadioItem>
+              <DropdownMenuRadioItem value={String(COMPLETED_TTL_OPTIONS_MS[1])}>{s.completedTtl15m}</DropdownMenuRadioItem>
+              <DropdownMenuRadioItem value={String(COMPLETED_TTL_OPTIONS_MS[2])}>{s.completedTtl30m}</DropdownMenuRadioItem>
+              <DropdownMenuRadioItem value={String(COMPLETED_TTL_OPTIONS_MS[3])}>{s.completedTtl1h}</DropdownMenuRadioItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuRadioItem value={String(COMPLETED_TTL_OPTIONS_MS[4])}>{s.completedTtlSticky}</DropdownMenuRadioItem>
+            </DropdownMenuRadioGroup>
+          </DropdownMenuSubContent>
+        </DropdownMenuSub>
       </DropdownMenuContent>
     </DropdownMenu>
   )
