@@ -226,6 +226,32 @@ export function FleetTierList({
         workingSessionIdSet={workingSessionIdSet}
       />
 
+      {/* Pinned lives ABOVE Working: a pinned session is "always quickly
+          reachable"; that takes priority over the transient working set
+          which can push Pinned below the fold on a busy fleet. */}
+      <SidebarSessionsSection
+        activeSessionId={activeSidebarSessionId}
+        contentClassName={cn('flex max-h-44 flex-col gap-px rounded-lg pb-2 pt-1', GROUP_BODY)}
+        dndSensors={dndSensors}
+        emptyState={<SidebarPinnedEmptyState />}
+        label={s.pinned}
+        onArchiveSession={onArchiveSession}
+        onBranchSession={onBranchSession}
+        onDeleteSession={onDeleteSession}
+        onReorderSessions={reorderPinned}
+        onResumeSession={onResumeSession}
+        onToggle={() => setSidebarPinsOpen(!pinsOpen)}
+        onTogglePin={unpinSession}
+        onTogglePriority={onTogglePriority}
+        open={pinsOpen}
+        pinned
+        priorityIdSet={priorityIdSet}
+        rootClassName="shrink-0 p-0 pb-1"
+        sessions={pinnedSessions}
+        sortable={pinnedSessions.length > 1}
+        workingSessionIdSet={workingSessionIdSet}
+      />
+
       <WorkingSection
         activeSessionId={activeSidebarSessionId}
         onArchiveSession={onArchiveSession}
@@ -254,29 +280,6 @@ export function FleetTierList({
         onResumeSession={onResumeSession}
         onTogglePin={pinSession}
         onToggleSunset={toggleSunsetFor}
-      />
-
-      <SidebarSessionsSection
-        activeSessionId={activeSidebarSessionId}
-        contentClassName={cn('flex max-h-44 flex-col gap-px rounded-lg pb-2 pt-1', GROUP_BODY)}
-        dndSensors={dndSensors}
-        emptyState={<SidebarPinnedEmptyState />}
-        label={s.pinned}
-        onArchiveSession={onArchiveSession}
-        onBranchSession={onBranchSession}
-        onDeleteSession={onDeleteSession}
-        onReorderSessions={reorderPinned}
-        onResumeSession={onResumeSession}
-        onToggle={() => setSidebarPinsOpen(!pinsOpen)}
-        onTogglePin={unpinSession}
-        onTogglePriority={onTogglePriority}
-        open={pinsOpen}
-        pinned
-        priorityIdSet={priorityIdSet}
-        rootClassName="shrink-0 p-0 pb-1"
-        sessions={pinnedSessions}
-        sortable={pinnedSessions.length > 1}
-        workingSessionIdSet={workingSessionIdSet}
       />
 
       <SidebarSessionsSection

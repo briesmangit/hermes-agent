@@ -88,8 +88,12 @@ export function ProfileSummaryBar({
     [onProfileClick]
   )
 
-  // Only show if we have more than 1 profile with data
-  if (profiles.length <= 1 || summaryItems.length <= 1) {
+  // Always show when more than one profile exists — the bar IS the bird's-eye
+  // fleet overview, and hiding it when "only 1 profile is alive" defeats its
+  // purpose: the quiet state ("only delta is working right now") is exactly
+  // when you want to see the 0/0 badges on the idle profiles. Dots with 0
+  // working + 0 attention are still informative (silence is signal).
+  if (profiles.length <= 1) {
     return null
   }
 
