@@ -67,7 +67,7 @@ export const ResponseLoadingIndicator: FC = () => {
       data-slot="aui_response-loading"
       label={compacting ? COMPACTION_LABEL : t.assistant.thread.loadingResponse}
     >
-      <span aria-hidden="true" className="dither inline-block size-3 rounded-[2px] text-midground/80 animate-pulse" />
+      <span aria-hidden="true" className="think-ring" />
       {compacting && <CompactionHint />}
       <ActivityTimerText seconds={elapsed} />
     </StatusRow>
@@ -159,7 +159,7 @@ export const StreamStallIndicator: FC = () => {
       data-slot="aui_stream-stall"
       label={compacting ? COMPACTION_LABEL : 'Hermes is thinking'}
     >
-      <span aria-hidden="true" className="dither inline-block size-3 rounded-[2px] text-midground/80 animate-pulse" />
+      <span aria-hidden="true" className="think-ring" />
       {compacting && <CompactionHint />}
       <ActivityTimerText seconds={elapsed} />
     </StatusRow>

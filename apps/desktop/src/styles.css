@@ -642,6 +642,61 @@
   }
 }
 
+/* ─── Calm rotating indicators (replacing pulse/arc for running tasks) ────
+   A single shared keyframe: a 270° arc that rotates once per cycle. Two
+   variants share it: `.run-ring` (sidebar working row — 11px, accent) and
+   `.think-ring` (thread "Hermes is thinking" statusrow — 12px, midground).
+   Both are minimal, single-color, slow rotation — a calm "still going" sign
+   that replaces the pulsing/breathing/arc-traveling effects the user found
+   too intense. Rotation speed: 1.4s feels attentive without being nervous. */
+
+@keyframes calm-ring-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* Inline-block element with a conic-gradient arc. The transparent gap (270°→360°)
+   is what makes it read as a partial ring — a "progress loop" — rather than a
+   full disc. Inherits currentColor so the caller sets color via --ui-accent. */
+.run-ring,
+.think-ring {
+  display: inline-block;
+  border-radius: 50%;
+  background: conic-gradient(
+    from 0deg,
+    currentColor 0deg,
+    currentColor 270deg,
+    transparent 270deg,
+    transparent 360deg
+  );
+  /* Mask to a ring (donut) shape: knock out the center so only the 270° arc shows,
+     not a solid disc. */
+  -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 0.09375rem), #000 calc(100% - 0.09375rem));
+  mask: radial-gradient(farthest-side, transparent calc(100% - 0.09375rem), #000 calc(100% - 0.09375rem));
+  animation: calm-ring-spin 1.4s linear infinite;
+  flex: none;
+}
+
+.run-ring {
+  width: 0.6875rem;   /* 11px — matches the working dot's visual weight */
+  height: 0.6875rem;
+  color: var(--ui-accent, currentColor);
+}
+
+.think-ring {
+  width: 0.75rem;     /* 12px — matches the old dither square's size-3 */
+  height: 0.75rem;
+  color: var(--dt-midground, #94a3b8);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .run-ring,
+  .think-ring {
+    animation: none;
+  }
+}
+
 /* Command-palette deep-link: briefly flash the targeted settings row. */
 @keyframes setting-field-flash {
   0% {
