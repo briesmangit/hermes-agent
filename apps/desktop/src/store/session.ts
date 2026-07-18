@@ -580,6 +580,16 @@ export function bumpCompletedTick(): void {
   $completedTick.set($completedTick.get() + 1)
 }
 
+// 60s tick subscription for "time since last activity" age labels. Session rows
+// subscribe via `useStore($sidebarAgeTick)` to force re-render when age bucket
+// boundaries (e.g. "5m" → "6m") need to update. Bumped by the per-row timer
+// effect or any consumer that wants to nudge all recency indicators at once.
+export const $sidebarAgeTick = atom<number>(0)
+
+export function bumpSidebarAgeTick(): void {
+  $sidebarAgeTick.set($sidebarAgeTick.get() + 1)
+}
+
 export function setSessionCompleted(sessionId: string | null | undefined, completed: boolean) {
   if (!sessionId) {
     return
