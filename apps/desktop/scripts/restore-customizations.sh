@@ -13,7 +13,7 @@
 # it was clobbered it re-applies from the committed customizations and reports.
 set -euo pipefail
 
-REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../.." && pwd)"
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 DESKTOP="$REPO_ROOT/apps/desktop"
 STYLES="$DESKTOP/src/styles.css"
 SESSION_ROW="$DESKTOP/src/app/chat/sidebar/session-row.tsx"
@@ -57,10 +57,7 @@ fi
 # custom-desktop branch, so the safe restore is to re-checkout the known-good
 # versions of just those two files from the current branch HEAD.
 echo "[restore-customizations] restoring clobbered files from HEAD..."
-git -C "$REPO_ROOT" checkout "briesman/custom-desktop" -- \
-  "apps/desktop/src/styles.css" \
-  "apps/desktop/src/app/chat/sidebar/session-row.tsx" 2>/dev/null \
-  || git -C "$REPO_ROOT" checkout HEAD -- \
+git -C "$REPO_ROOT" checkout HEAD -- \
   "apps/desktop/src/styles.css" \
   "apps/desktop/src/app/chat/sidebar/session-row.tsx"
 
