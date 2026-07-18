@@ -1277,6 +1277,11 @@ export interface Translations {
     clearSunset: string
     sunsetSection: string
     showSunset: string
+    // Priority triage: a session the operator has flagged as priority.
+    priority: string
+    markPriority: string
+    clearPriority: string
+    prioritySection: string
     // Cross-profile overview: working/completed/pinned across every OTHER profile.
     // Hidden in ALL_PROFILES view (where the unified All Activity tab takes over).
     otherAgents: string

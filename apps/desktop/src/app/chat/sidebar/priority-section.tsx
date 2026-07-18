@@ -9,66 +9,62 @@ import { profileColor } from '@/lib/profile-color'
 import { SidebarCount } from './chrome'
 import { SidebarSessionRow } from './session-row'
 
-interface AttentionSectionProps {
+interface PrioritySectionProps {
   /**
    * Cross-profile union of every profile's live session mirror. This is the
-   * source of truth for attention scanning — never pass the scope-filtered
-   * `$sessions` here, or a crave for input from profile B becomes invisible
+   * source of truth for priority scanning — never pass the scope-filtered
+   * `$sessions` here, or a priority from profile B becomes invisible
    * while the operator is scoped to profile A (INV-5).
    */
   allProfileSessions: SessionInfo[]
-  /** Ids flagged `state.needsInput === true` by the gateway. */
-  attentionSessionIds: string[]
-  /** Ids marked priority by the operator — these win over Attention (INV-9). */
-  priorityIdSet?: Set<string>
+  /** Ids flagged `isPriority` by the operator. */
+  allProfilePriorityIds: Set<string>
   activeSessionId: string | null
   workingSessionIdSet: Set<string>
   onResumeSession: (sessionId: string) => void
   onDeleteSession: (sessionId: string) => void
   onArchiveSession: (sessionId: string) => void
   onTogglePin: (sessionId: string) => void
+  onTogglePriority: (sessionId: string) => void
   onBranchSession?: (sessionId: string, profile?: string) => void
 }
 
 /**
- * AttentionSection — top tier of the Fleet Tier List.
+ * PrioritySection — top tier of the Fleet Tier List.
  *
- * Surfaces every session currently flagged by the gateway as awaiting user
- * input (i.e. `state.needsInput === true`). Invariant INV-5: this tier is
- * always cross-profile — `allProfileSessions` is the union of every
- * profile's live mirror, so a need in profile B is visible while the
- * operator is scoped to profile A.
+ * Surfaces every session currently flagged by the operator as priority.
+ * Invariant INV-5: this tier is always cross-profile — `allProfileSessions` is
+ * the union of every profile's live mirror, so a priority in profile B is
+ * visible while the operator is scoped to profile A.
  *
- * Invariant INV-6: the row carries a steady 3px red left-border (no pulse /
+ * Invariant INV-6: the row carries a steady 3px amber left-border (no pulse /
  * ping animation). The header is always expanded while non-empty.
  */
-export function AttentionSection({
+export function PrioritySection({
   allProfileSessions,
-  attentionSessionIds,
-  priorityIdSet,
+  allProfilePriorityIds,
   activeSessionId,
   workingSessionIdSet,
   onResumeSession,
   onDeleteSession,
   onArchiveSession,
   onTogglePin,
+  onTogglePriority,
   onBranchSession
-}: AttentionSectionProps) {
+}: PrioritySectionProps) {
   const { t } = useI18n()
   const s = t.sidebar
 
-  const attentionSet = useMemo(() => new Set(attentionSessionIds), [attentionSessionIds])
-
   // Cross-profile filter + sort by `last_active` desc (newest first).
   const sessions = useMemo(() => {
-    if (attentionSet.size === 0) {
+    if (allProfilePriorityIds.size === 0) {
       return []
     }
 
     const next: SessionInfo[] = []
 
     for (const session of allProfileSessions) {
-      if (attentionSet.has(session.id) && !priorityIdSet?.has(session.id)) {
+      if (allProfilePriorityIds.has(session.id)) {
         next.push(session)
       }
     }
@@ -76,35 +72,32 @@ export function AttentionSection({
     next.sort((a, b) => (b.last_active || 0) - (a.last_active || 0))
 
     return next
-  }, [allProfileSessions, attentionSet, priorityIdSet])
+  }, [allProfileSessions, allProfilePriorityIds])
 
-  // Render nothing when there is nothing to attend to.
+  // Render nothing when there is nothing to prioritize.
   if (sessions.length === 0) {
     return null
   }
 
   return (
-    <SidebarGroup className="attention-section shrink-0 p-0 pb-1">
+    <SidebarGroup className="priority-section shrink-0 p-0 pb-1">
       <div className="group/section flex shrink-0 items-center justify-between pb-1 pt-1.5">
         <div className="flex w-fit items-center gap-1 leading-none">
-          <SidebarPanelLabel>{s.needsInput}</SidebarPanelLabel>
+          <SidebarPanelLabel>{s.prioritySection}</SidebarPanelLabel>
           <SidebarCount>{sessions.length}</SidebarCount>
         </div>
       </div>
       <SidebarGroupContent className="flex flex-col gap-px pb-1.75">
         {sessions.map(session => {
-          const isWorking = workingSessionIdSet.has(session.id)
           const color = profileColor(session.profile)
-          // INV-6: 3px steady red left-border. Bump to 4px only when the
-          // session is also in the working set (very rare — the gateway
-          // typically picks one signal at a time).
-          const borderWidth = isWorking ? 4 : 3
+          // INV-6: 3px steady amber left-border.
+          const borderWidth = 3
 
           return (
             <div className="relative" key={session.id}>
               <span
                 aria-hidden
-                className="absolute left-0 top-0 bottom-0 bg-red-500"
+                className="absolute left-0 top-0 bottom-0 bg-amber-500"
                 style={{ width: `${borderWidth / 16}rem` }}
               />
               {color && (
@@ -113,7 +106,7 @@ export function AttentionSection({
                   className="absolute top-0 bottom-0 rounded-full"
                   style={{
                     backgroundColor: color,
-                    // Sit just inside the red bar so the profile identity is
+                    // Sit just inside the amber bar so the profile identity is
                     // discoverable without crowding the urgency signal.
                     left: `${(borderWidth + 2) / 16}rem`,
                     width: '0.125rem'
@@ -122,13 +115,15 @@ export function AttentionSection({
               )}
               <SidebarSessionRow
                 isPinned={false}
+                isPriority={true}
                 isSelected={session.id === activeSessionId}
                 isSunset={false}
-                isWorking={isWorking}
+                isWorking={workingSessionIdSet.has(session.id)}
                 onArchive={() => onArchiveSession(session.id)}
                 onBranch={onBranchSession ? () => onBranchSession(session.id, session.profile) : undefined}
                 onDelete={() => onDeleteSession(session.id)}
                 onPin={() => onTogglePin(session.id)}
+                onPriority={() => onTogglePriority(session.id)}
                 onResume={() => onResumeSession(session.id)}
                 session={session}
                 style={color ? { paddingLeft: '0.625rem' } : undefined}

@@ -569,6 +569,7 @@ export const setCompletedSessionIds = (next: Updater<string[]>) => updateAtom($c
 
 // Shared tick atom for consolidated 1s countdown re-render (S07 clock consolidation)
 export const $completedTick = atom<number>(0)
+
 export function bumpCompletedTick(): void {
   $completedTick.set($completedTick.get() + 1)
 }
@@ -672,6 +673,36 @@ export function setSessionWorking(sessionId: string | null | undefined, working:
 //
 // Scoped per profile (a sunset mark on alpha's session must not bleed into
 // beta's list), using the same connection+profile key scheme as workspaceCwd.
+export const priorityKey = (connection: HermesConnection | null = $connection.get()): string => {
+  if (connection?.mode !== 'remote') {
+    return 'hermes.desktop.prioritySessionIds'
+  }
+
+  const base = encodeURIComponent(connection.baseUrl || 'remote')
+  const profile = encodeURIComponent(connection.profile || 'default')
+
+  return `hermes.desktop.prioritySessionIds.remote.${base}.${profile}`
+}
+
+export const $prioritySessionIds = atom<string[]>(storedStringArray(priorityKey()))
+
+// Re-key on connection change so the right profile's priority set loads.
+$connection.subscribe(() => {
+  $prioritySessionIds.set(storedStringArray(priorityKey()))
+})
+
+export const setPrioritySessionIds = (next: Updater<string[]>) =>
+  updateAtom($prioritySessionIds, ids => {
+    const value = typeof next === 'function' ? (next as (current: string[]) => string[])(ids) : next
+
+    persistStringArray(priorityKey(), value)
+
+    return value
+  })
+
+export const togglePriority = (sessionId: string) =>
+  setPrioritySessionIds(current => (current.includes(sessionId) ? current.filter(id => id !== sessionId) : [...current, sessionId]))
+
 export const sunsetKey = (connection: HermesConnection | null = $connection.get()): string => {
   if (connection?.mode !== 'remote') {
     return 'hermes.desktop.sunsetSessionIds'

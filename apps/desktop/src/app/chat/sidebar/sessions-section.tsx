@@ -137,6 +137,8 @@ interface SidebarSessionsSectionProps {
   // Sunset-triaged ids (done but not archived); rows matching are dimmed.
   sunsetIdSet?: ReadonlySet<string>
   onToggleSunset?: (sessionId: string) => void
+  priorityIdSet?: ReadonlySet<string>
+  onTogglePriority?: (sessionId: string) => void
   // Rendered atop the entered-project body (a "back to overview" row).
   projectBackRow?: React.ReactNode
   dndSensors?: ReturnType<typeof useSensors>
@@ -182,6 +184,8 @@ export function SidebarSessionsSection({
   projectBackRow,
   sunsetIdSet,
   onToggleSunset,
+  priorityIdSet,
+  onTogglePriority,
   dndSensors
 }: SidebarSessionsSectionProps) {
   const sectionOpen = collapsible ? open : true
@@ -205,6 +209,7 @@ export function SidebarSessionsSection({
       isPinned: pinned,
       isSelected: session.id === activeSessionId,
       isSunset: sunsetIdSet?.has(session._lineage_root_id ?? session.id) ?? false,
+      isPriority: priorityIdSet?.has(session._lineage_root_id ?? session.id) ?? false,
       isWorking: workingSessionIdSet.has(session.id),
       sessionNumber: sessionNumbers?.get(session.id) ?? null,
       onArchive: () => onArchiveSession(session.id),
@@ -213,6 +218,7 @@ export function SidebarSessionsSection({
       onPin: () => onTogglePin(sessionPinId(session)),
       onResume: () => onResumeSession(session.id),
       onToggleSunset: onToggleSunset ? () => onToggleSunset(session._lineage_root_id ?? session.id) : undefined,
+      onPriority: onTogglePriority ? () => onTogglePriority(session._lineage_root_id ?? session.id) : undefined,
       reorderable: draggable && !branchStem,
       session
     }
@@ -321,8 +327,10 @@ export function SidebarSessionsSection({
         onDeleteSession={onDeleteSession}
         onResumeSession={onResumeSession}
         onTogglePin={onTogglePin}
+        onTogglePriority={onTogglePriority}
         onToggleSunset={onToggleSunset}
         pinned={pinned}
+        priorityIdSet={priorityIdSet}
         sortable={sessionsDraggable}
         sunsetIdSet={sunsetIdSet}
         workingSessionIdSet={workingSessionIdSet}

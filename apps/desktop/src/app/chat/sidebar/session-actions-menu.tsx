@@ -76,6 +76,8 @@ interface SessionActions {
   title: string
   pinned?: boolean
   sunset?: boolean
+  isPriority?: boolean
+  onTogglePriority?: () => void
   profile?: string
   onPin?: () => void
   onToggleSunset?: () => void
@@ -100,9 +102,11 @@ function useSessionActions({
   title,
   pinned = false,
   sunset = false,
+  isPriority = false,
   profile,
   onPin,
   onToggleSunset,
+  onTogglePriority,
   onBranch,
   onArchive,
   onDelete
@@ -131,7 +135,18 @@ function useSessionActions({
     }
   }
 
+  const priorityItem: ItemSpec = {
+    disabled: !onTogglePriority,
+    icon: 'star',
+    label: isPriority ? t.sidebar.clearPriority : t.sidebar.markPriority,
+    onSelect: () => {
+      triggerHaptic('selection')
+      onTogglePriority?.()
+    }
+  }
+
   const items: ItemSpec[] = [
+    priorityItem,
     sunsetItem,
     ...(canOpenSessionWindow()
       ? [

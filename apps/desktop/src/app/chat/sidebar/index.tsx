@@ -56,6 +56,7 @@ import {
   toggleSidebarMessagingOpen,
   unpinSession
 } from '@/store/layout'
+import { $allProfilePriorityIds, refreshAllProfilePriorityIds } from '@/store/priority-cross-profile'
 import { $newChatProfile, $profiles, $profileScope, ALL_PROFILES, normalizeProfileKey, selectProfile } from '@/store/profile'
 import {
   $activeProjectId,
@@ -85,6 +86,7 @@ import {
   $messagingPlatformTotals,
   $messagingSessions,
   $messagingTruncated,
+  $prioritySessionIds,
   $selectedStoredSessionId,
   $sessionNumberingEnabled,
   $sessionProfileTotals,
@@ -98,6 +100,7 @@ import {
   sessionPinId,
   setCurrentCwd,
   setSessionCompleted,
+  togglePriority,
   toggleSunset
 } from '@/store/session'
 import { refreshAllProfileSunsetIds } from '@/store/sunset-cross-profile'
@@ -358,6 +361,14 @@ export function ChatSidebar({
     return set
   }, [sunsetIds])
 
+  const allProfilePriorityIds = useStore($allProfilePriorityIds)
+
+  const priorityIdSet = useMemo(() => new Set(allProfilePriorityIds), [allProfilePriorityIds])
+
+  const prioritySessionIdsValue = useStore($prioritySessionIds)
+
+  const togglePriorityFor = useCallback((sessionId: string) => togglePriority(sessionId), [])
+
   const toggleSunsetFor = useCallback((sessionId: string) => toggleSunset(sessionId), [])
 
   // Session numbering — sequential IDs by creation order (started_at)
@@ -502,9 +513,10 @@ export function ChatSidebar({
       const base = agentOrderManual ? orderByIds(unpinnedAgentSessions, s => s.id, agentOrderIds) : unpinnedAgentSessions
 
       // Filter out working AND completed sessions from profile groups — they live in their own tabs
-      return base.filter(s => !workingSessionIdSet.has(s.id) && !completedIdSet.has(s.id))
+      // INV-9: priority sessions live in Priority tier — exclude from agent/recents to avoid duplication
+      return base.filter(s => !workingSessionIdSet.has(s.id) && !completedIdSet.has(s.id) && !priorityIdSet.has(s.id))
     },
-    [unpinnedAgentSessions, agentOrderIds, agentOrderManual, workingSessionIdSet, completedIdSet]
+    [unpinnedAgentSessions, agentOrderIds, agentOrderManual, workingSessionIdSet, completedIdSet, priorityIdSet]
   )
 
   // Recents are local-only: messaging-platform sessions are fetched as their
@@ -781,6 +793,13 @@ export function ChatSidebar({
     refreshAllProfileSunsetIds()
   }, [allProfileSessions])
 
+  // Keep the cross-profile priority mirror ($allProfilePriorityIds) in sync
+  // with the cross-profile sessions mirror so PrioritySection shows priority
+  // sessions from ALL profiles regardless of scope (INV-5).
+  useEffect(() => {
+    refreshAllProfilePriorityIds()
+  }, [allProfileSessions, prioritySessionIdsValue])
+
   // Consolidated 1s tick: prunes expired completions AND bumps shared $completedTick
   // atom for per-row countdown re-renders (S07 clock consolidation).
   useEffect(() => {
@@ -1031,7 +1050,7 @@ export function ChatSidebar({
   // parallel grouped view, not a filter on this one — nothing is hidden here.
   // BUT: working sessions go in their own "Working" section (above Pinned),
   // AND completed sessions go in "Completed" — so we must exclude both from Recents.
-  const displayAgentSessions = agentSessions.filter(s => !workingSessionIdSet.has(s.id) && !completedIdSet.has(s.id))
+  const displayAgentSessions = agentSessions.filter(s => !workingSessionIdSet.has(s.id) && !completedIdSet.has(s.id) && !priorityIdSet.has(s.id))
 
   // Pagination is scope-aware. In "All profiles" mode it tracks the global
   // unified set. When scoped to one profile it must compare that profile's own
@@ -1300,6 +1319,7 @@ export function ChatSidebar({
                 agentSessions={agentSessions}
                 agentsGrouped={agentsGrouped}
                 agentsOpen={agentsOpen}
+                allProfilePriorityIds={priorityIdSet}
                 // INV-5: feed the cross-profile union so the Attention tier can
                 // surface "needs input" sessions from ANY profile, even while
                 // the operator is scoped to a single one.
@@ -1320,11 +1340,13 @@ export function ChatSidebar({
                 onLoadMoreRecents={onLoadMoreRecents}
                 onNewSessionInWorkspace={onNewSessionInWorkspace}
                 onResumeSession={onResumeSession}
+                onTogglePriority={togglePriorityFor}
                 openProjectCreate={openProjectCreate}
                 overviewPreviews={overviewPreviews}
                 pinnedSessions={pinnedSessions}
                 pinSession={pinSession}
                 pinsOpen={pinsOpen}
+                priorityIdSet={priorityIdSet}
                 profileScope={profileScope}
                 projectOverview={projectOverview}
                 projectsSkeletonVisible={projectsSkeletonVisible}
