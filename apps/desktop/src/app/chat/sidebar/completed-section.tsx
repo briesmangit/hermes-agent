@@ -120,22 +120,38 @@ export function CompletedSection({
                 onPin={() => onTogglePin(session.id)}
                 onResume={() => onResumeSession(session.id)}
                 session={session}
+                footerBar={
+                  stickyMode ? (
+                    // Sticky: rows persist until user clears them. Show a steady
+                    // amber bar so it reads as "held / doesn't expire".
+                    <span
+                      aria-label={s.completedTtlSticky}
+                      className="block h-full w-full rounded-full bg-amber-500/70"
+                      title={s.completedTtlSticky}
+                    />
+                  ) : remainingSec > 0 ? (
+                    (() => {
+                      const totalMs = $completedTtlSetting.get() || 1
+                      const frac = Math.max(0, Math.min(1, remainingSec * 1000 / totalMs))
+                      // Green (fresh, full window) → red (about to prune).
+                      const hue = Math.round(18 + (145 - 18) * frac)
+
+                      return (
+                        <span
+                          aria-label={`${formatCountdown(remainingSec)} until auto-archive`}
+                          className="block h-full w-full rounded-full bg-(--ui-border-subtle)"
+                          title={`${formatCountdown(remainingSec)} until auto-archive`}
+                        >
+                          <span
+                            className="block h-full rounded-full"
+                            style={{ width: `${Math.round(frac * 100)}%`, backgroundColor: `hsl(${hue} 70% 52%)` }}
+                          />
+                        </span>
+                      )
+                    })()
+                  ) : null
+                }
               >
-                {stickyMode ? (
-                  // Sticky: rows persist until user clears them. Show a muted pin glyph
-                  // instead of a countdown so it reads as "stays" rather than "expires".
-                  <span
-                    aria-label={s.completedTtlSticky}
-                    className="shrink-0 ml-1 text-[0.625rem] font-mono text-(--ui-text-quaternary) tabular-nums"
-                    title={s.completedTtlSticky}
-                  >
-                    •
-                  </span>
-                ) : remainingSec > 0 ? (
-                  <span className="shrink-0 ml-1 text-[0.625rem] font-mono text-(--ui-text-tertiary) tabular-nums">
-                    {formatCountdown(remainingSec)}
-                  </span>
-                ) : null}
               </SidebarSessionRow>
             )
           })}
