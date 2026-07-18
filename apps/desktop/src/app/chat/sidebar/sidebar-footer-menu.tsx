@@ -19,10 +19,14 @@ import { useI18n } from '@/i18n'
 import {
   $completedTtlSetting,
   $sidebarAgentsGrouped,
+  $sidebarCompact,
   $sidebarSunsetVisible,
+  $terminalDockPosition,
   setCompletedTtlSetting,
   setSidebarAgentsGrouped,
-  setSidebarSunsetVisible
+  setSidebarCompact,
+  setSidebarSunsetVisible,
+  setTerminalDockPosition
 } from '@/store/layout'
 import { $sessionNumberingEnabled, resetSessionNumberingCounter, setSessionNumberingEnabled } from '@/store/session'
 
@@ -74,6 +78,8 @@ export function SidebarFooterMenu() {
   const agentsGrouped = useStore($sidebarAgentsGrouped)
   const sunsetVisible = useStore($sidebarSunsetVisible)
   const completedTtlMs = useStore($completedTtlSetting)
+  const compact = useStore($sidebarCompact)
+  const terminalDockPosition = useStore($terminalDockPosition)
 
   return (
     <DropdownMenu>
@@ -111,6 +117,18 @@ export function SidebarFooterMenu() {
           onCheckedChange={value => setSidebarSunsetVisible(Boolean(value))}
         >
           Show sunset section
+        </DropdownMenuCheckboxItem>
+        <DropdownMenuCheckboxItem
+          checked={compact}
+          onCheckedChange={value => setSidebarCompact(Boolean(value))}
+        >
+          Compact rows
+        </DropdownMenuCheckboxItem>
+        <DropdownMenuCheckboxItem
+          checked={terminalDockPosition === 'bottom'}
+          onCheckedChange={value => setTerminalDockPosition(value ? 'bottom' : 'right')}
+        >
+          Dock terminal to bottom
         </DropdownMenuCheckboxItem>
         <DropdownMenuSeparator />
         <DropdownMenuSub>

@@ -451,6 +451,24 @@
     --ui-chat-surface-background: #1e1e1e;
   }
 
+  /* Q8: sidebarCompact mode — ultra-dense 1-line rows. Scoped under
+     .sidebar-compact (toggled from the footer gear). Tightens row height,
+     gaps, and hides secondary metadata so many more sessions fit per screen.
+     Session rows already carry their own padding; we override it here so the
+     change stays in one place. */
+  .sidebar-compact .group\/session-row {
+    min-height: 1.5rem;
+    padding-top: 0.0625rem;
+    padding-bottom: 0.0625rem;
+  }
+  .sidebar-compact .group\/session-row .text-\[0\.625rem\] {
+    display: none;
+  }
+  .sidebar-compact .sidebar-tier-gap,
+  .sidebar-compact [data-sidebar-section-gap] {
+    margin-top: 0.25rem;
+  }
+
   * {
     box-sizing: border-box;
     border-color: var(--dt-border);

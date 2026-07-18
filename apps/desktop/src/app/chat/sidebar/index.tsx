@@ -34,6 +34,7 @@ import {
   $sidebarMessagingOpenIds,
   $sidebarOpen,
   $sidebarOverlayMounted,
+  $sidebarCompact,
   $sidebarPinsOpen,
   $sidebarProjectOrderIds,
   $sidebarRecentsOpen,
@@ -231,6 +232,7 @@ export function ChatSidebar({
   const { t } = useI18n()
   const s = t.sidebar
   const sidebarOpen = useStore($sidebarOpen)
+  const compact = useStore($sidebarCompact)
   // Collapsed-but-overlay-mounted → render the full sidebar, not just the nav rail.
   const overlayMounted = useStore($sidebarOverlayMounted)
   const contentVisible = sidebarOpen || overlayMounted
@@ -1213,6 +1215,7 @@ export function ChatSidebar({
     <Sidebar
       className={cn(
         'relative h-full min-w-0 overflow-hidden border-t-0 border-b-0 text-foreground transition-none',
+        compact && 'sidebar-compact',
         panesFlipped ? 'border-l border-r-0' : 'border-r border-l-0',
         sidebarOpen
           ? 'border-(--sidebar-edge-border) bg-(--ui-sidebar-surface-background) opacity-100'

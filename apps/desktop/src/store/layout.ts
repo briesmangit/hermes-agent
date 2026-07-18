@@ -34,6 +34,7 @@ const RIGHT_RAIL_ACTIVE_TAB_STORAGE_KEY = 'hermes.desktop.rightRailActiveTab'
 const TERMINAL_DOCK_POSITION_STORAGE_KEY = 'hermes.desktop.terminalDockPosition'
 const TERMINAL_DOCK_HEIGHT_STORAGE_KEY = 'hermes.desktop.terminalDockHeight'
 const COMPLETED_TTL_STORAGE_KEY = 'hermes.desktop.completedTtlSetting'
+const SIDEBAR_COMPACT_STORAGE_KEY = 'hermes.desktop.sidebarCompact'
 
 export const CHAT_SIDEBAR_PANE_ID = 'chat-sidebar'
 export const FILE_BROWSER_PANE_ID = 'file-browser'
@@ -152,6 +153,9 @@ export const $completedTtlSetting = persistentAtom<number>(
   30 * 60 * 1000,
   { decode: (raw: string) => Math.max(0, parseInt(raw, 10) || 0), encode: (v: number) => String(v) }
 )
+// Q8: ultra-dense sidebar mode — 1-line rows, tighter spacing, hides secondary
+// metadata. Global UI-density preference, persisted so it survives reload.
+export const $sidebarCompact = persistentAtom(SIDEBAR_COMPACT_STORAGE_KEY, false, Codecs.bool)
 // When true, the sessions sidebar moves to the right and the file browser +
 // preview rail move to the left — a mirror of the default layout.
 export const $panesFlipped = persistentAtom(PANES_FLIPPED_STORAGE_KEY, false, Codecs.bool)
@@ -293,6 +297,14 @@ export function setSidebarSunsetVisible(visible: boolean) {
 
 export function setCompletedTtlSetting(ms: number) {
   $completedTtlSetting.set(ms)
+}
+
+export function setSidebarCompact(compact: boolean) {
+  $sidebarCompact.set(compact)
+}
+
+export function toggleSidebarCompact() {
+  $sidebarCompact.set(!$sidebarCompact.get())
 }
 
 export function setSidebarSessionOrderIds(ids: string[]) {
