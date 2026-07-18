@@ -218,7 +218,13 @@ export function SidebarSessionRow({
           style={{ ...style, ...borderStyle }}
           {...rest}
         >
-        {isWorking && !needsInput && <span aria-hidden="true" className="arc-border" />}
+        {isWorking && !needsInput && (
+          <span
+            aria-hidden="true"
+            className="run-ring pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 opacity-80"
+            title={r.sessionRunning}
+          />
+        )}
         {/* Recency heat strip: thin left bar green→red by last-active age. Layers
             inside the profile-color left border (which stays on the very edge). */}
         {!isWorking && (
