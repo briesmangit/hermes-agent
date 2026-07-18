@@ -77,7 +77,9 @@ interface SessionActions {
   pinned?: boolean
   sunset?: boolean
   isPriority?: boolean
+  isKanban?: boolean
   onTogglePriority?: () => void
+  onToggleKanban?: () => void
   profile?: string
   onPin?: () => void
   onToggleSunset?: () => void
@@ -103,10 +105,12 @@ function useSessionActions({
   pinned = false,
   sunset = false,
   isPriority = false,
+  isKanban = false,
   profile,
   onPin,
   onToggleSunset,
   onTogglePriority,
+  onToggleKanban,
   onBranch,
   onArchive,
   onDelete
@@ -145,8 +149,19 @@ function useSessionActions({
     }
   }
 
+  const kanbanItem: ItemSpec = {
+    disabled: !onToggleKanban,
+    icon: 'kanban',
+    label: isKanban ? t.sidebar.clearKanban : t.sidebar.markKanban,
+    onSelect: () => {
+      triggerHaptic('selection')
+      onToggleKanban?.()
+    }
+  }
+
   const items: ItemSpec[] = [
     priorityItem,
+    kanbanItem,
     sunsetItem,
     ...(canOpenSessionWindow()
       ? [

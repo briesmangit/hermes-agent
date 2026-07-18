@@ -756,6 +756,48 @@ export const setSunsetSessionIds = (next: Updater<string[]>) =>
 export const toggleSunset = (sessionId: string) =>
   setSunsetSessionIds(current => (current.includes(sessionId) ? current.filter(id => id !== sessionId) : [...current, sessionId]))
 
+// ─── Kanban task sessions ─────────────────────────────────────────────────────
+// Kanban workers are spawned by the dispatcher with HERMES_KANBAN_TASK=<task_id>
+// and HERMES_PROFILE=<assignee>. Their sessions have source='cli' and live in the
+// assignee's profile, but they also run in a worktree under .worktrees/t_<hex>
+// (detected by kanbanWorktreeDir(cwd)). This per-profile set lets the operator
+// mark any session as "kanban" (or auto-detect via cwd) so the Kanban tier can
+// collect them cross-profile without flooding Working/Completed/Recents.
+//
+// Scoped per profile using the same connection+profile key scheme as workspaceCwd.
+export const kanbanKey = (connection: HermesConnection | null = $connection.get()): string => {
+  if (connection?.mode !== 'remote') {
+    return 'hermes.desktop.kanbanSessionIds'
+  }
+
+  const base = encodeURIComponent(connection.baseUrl || 'remote')
+  const profile = encodeURIComponent(connection.profile || 'default')
+
+  return `hermes.desktop.kanbanSessionIds.remote.${base}.${profile}`
+}
+
+export const $kanbanSessionIds = atom<string[]>(storedStringArray(kanbanKey()))
+
+// Re-key on connection change so the right profile's kanban set loads.
+$connection.subscribe(() => {
+  $kanbanSessionIds.set(storedStringArray(kanbanKey()))
+})
+
+export const setKanbanSessionIds = (next: Updater<string[]>) =>
+  updateAtom($kanbanSessionIds, ids => {
+    const value = typeof next === 'function' ? (next as (current: string[]) => string[])(ids) : next
+
+    persistStringArray(kanbanKey(), value)
+
+    // Also refresh the cross-profile mirror after any local mutation.
+    import('./kanban-cross-profile').then(m => m.refreshAllProfileKanbanIds())
+
+    return value
+  })
+
+export const toggleKanban = (sessionId: string) =>
+  setKanbanSessionIds(current => (current.includes(sessionId) ? current.filter(id => id !== sessionId) : [...current, sessionId]))
+
 // ─── Cross-profile activity overview ────────────────────────────────────────
 // Always-on aggregation of working/completed/pinned sessions across EVERY
 // profile, independent of the currently-scoped sidebar list. Solves the

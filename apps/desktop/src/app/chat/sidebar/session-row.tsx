@@ -32,6 +32,7 @@ interface SidebarSessionRowProps extends React.ComponentProps<'div'> {
   /** Sunset-triaged: done but not archived, visually demoted. */
   isSunset?: boolean
   isPriority?: boolean
+  isKanban?: boolean
   /** Sequential session number (when numbering is enabled, else null) */
   sessionNumber?: number | null
   onArchive: () => void
@@ -41,6 +42,7 @@ interface SidebarSessionRowProps extends React.ComponentProps<'div'> {
   onResume: () => void
   onToggleSunset?: () => void
   onPriority?: () => void
+  onToggleKanban?: () => void
   reorderable?: boolean
   dragging?: boolean
   dragHandleProps?: React.HTMLAttributes<HTMLElement>
@@ -67,6 +69,7 @@ export function SidebarSessionRow({
     isWorking,
     isSunset = false,
     isPriority = false,
+    isKanban = false,
     sessionNumber,
     onArchive,
     onBranch,
@@ -75,6 +78,7 @@ export function SidebarSessionRow({
     onResume,
     onToggleSunset,
     onPriority,
+    onToggleKanban,
     reorderable = false,
     dragging = false,
     dragHandleProps,
@@ -121,26 +125,24 @@ export function SidebarSessionRow({
     // Working-session elapsed timer (persists across remount via timerKey).
     const elapsedSec = useElapsedSeconds(isWorking && !needsInput, `sidebar:${session.id}`)
 
-    // Profile-color left border: 3px normal, 4px for working sessions.
-    // Default profile (no color) gets neutral grey; working sessions get 4px.
-    const borderColor = profileColor(session.profile)
-    const borderWidth = isWorking ? 4 : 3
-
-    const borderStyle: React.CSSProperties = isPriority
-      ? { borderLeft: '3px solid hsl(38 92% 55%)' }
-      : borderColor
-      ? { borderLeft: `${borderWidth}px solid ${borderColor}` }
-      : isWorking
-      ? { borderLeft: `${borderWidth}px solid hsl(var(--ui-border))` }
-      : {}
+    // Profile-color left border (SLICE-04, AC1/AC2): always 2px, always
+    // visible, always the profile color. The row is box-sizing: border-box
+    // (global reset), so the 2px border never shifts layout (AC5). For the
+    // default/untagged profile (profColor null) we fall back to the neutral
+    // rail border so the edge stays consistent rather than disappearing.
+    const borderStyle: React.CSSProperties = {
+      borderLeft: `2px solid ${profColor ?? 'hsl(var(--ui-border))'}`
+    }
 
     return (
       <SessionContextMenu
+        isKanban={isKanban}
         isPriority={isPriority}
         onArchive={onArchive}
         onBranch={onBranch}
         onDelete={onDelete}
         onPin={onPin}
+        onToggleKanban={onToggleKanban}
         onTogglePriority={onPriority}
         profile={session.profile}
         sessionId={session.id}
@@ -166,7 +168,9 @@ export function SidebarSessionRow({
                 onArchive={onArchive}
                 onBranch={onBranch}
                 onDelete={onDelete}
+                isKanban={isKanban}
                 onPin={onPin}
+                onToggleKanban={onToggleKanban}
                 onTogglePriority={onPriority}
                 onToggleSunset={onToggleSunset}
                 pinned={isPinned}
@@ -299,6 +303,15 @@ export function SidebarSessionRow({
                 title={t.sidebar.sunset}
               >
                 ⏾
+              </span>
+            )}
+            {isKanban && (
+              <span
+                aria-label={t.sidebar.kanban}
+                className="mr-1 shrink-0 rounded-[3px] bg-(--ui-accent)/15 px-1 py-px text-[0.5rem] font-semibold uppercase leading-none tracking-wide text-(--ui-accent)"
+                title={t.sidebar.kanban}
+              >
+                ▢
               </span>
             )}
             {numberingEnabled && sessionNumber != null && (

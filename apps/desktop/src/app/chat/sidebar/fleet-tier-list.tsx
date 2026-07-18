@@ -10,6 +10,7 @@ import { cn } from '@/lib/utils'
 
 import { AttentionSection } from './attention-section'
 import { CompletedSection } from './completed-section'
+import { KanbanSection } from './kanban-section'
 import { SidebarLoadMoreRow } from './load-more-row'
 import { PrioritySection } from './priority-section'
 import {
@@ -93,6 +94,7 @@ export interface FleetTierListProps {
   allProfilePriorityIds: Set<string>
   priorityIdSet: Set<string>
   onTogglePriority: (sessionId: string) => void
+  onToggleKanban: (sessionId: string) => void
   activeProjectId: string | null
   inProject: boolean
   dndSensors: ReturnType<typeof useSensors>
@@ -167,6 +169,7 @@ export function FleetTierList({
   allProfilePriorityIds,
   priorityIdSet,
   onTogglePriority,
+  onToggleKanban,
   activeProjectId,
   inProject,
   dndSensors,
@@ -280,6 +283,16 @@ export function FleetTierList({
         onResumeSession={onResumeSession}
         onTogglePin={pinSession}
         onToggleSunset={toggleSunsetFor}
+      />
+
+      <KanbanSection
+        activeSessionId={activeSidebarSessionId}
+        onArchiveSession={onArchiveSession}
+        onBranchSession={onBranchSession}
+        onDeleteSession={onDeleteSession}
+        onResumeSession={onResumeSession}
+        onToggleKanban={onToggleKanban}
+        onTogglePin={pinSession}
       />
 
       <SidebarSessionsSection

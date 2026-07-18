@@ -1288,6 +1288,11 @@ export interface Translations {
     markPriority: string
     clearPriority: string
     prioritySection: string
+    // Kanban triage: sessions spawned by the kanban dispatcher.
+    kanban: string
+    markKanban: string
+    clearKanban: string
+    kanbanSection: string
     // Cross-profile overview: working/completed/pinned across every OTHER profile.
     // Hidden in ALL_PROFILES view (where the unified All Activity tab takes over).
     otherAgents: string

@@ -101,10 +101,12 @@ import {
   sessionPinId,
   setCurrentCwd,
   setSessionCompleted,
+  toggleKanban,
   togglePriority,
   toggleSunset
 } from '@/store/session'
 import { refreshAllProfileSunsetIds } from '@/store/sunset-cross-profile'
+import { $allProfileKanbanIds, refreshAllProfileKanbanIds } from '@/store/kanban-cross-profile'
 
 import { type AppView, ARTIFACTS_ROUTE, MESSAGING_ROUTE, SKILLS_ROUTE } from '../../routes'
 import type { SidebarNavItem } from '../../types'
@@ -366,9 +368,15 @@ export function ChatSidebar({
 
   const priorityIdSet = useMemo(() => new Set(allProfilePriorityIds), [allProfilePriorityIds])
 
+  const allProfileKanbanIds = useStore($allProfileKanbanIds)
+
+  const kanbanIdSet = useMemo(() => new Set(allProfileKanbanIds), [allProfileKanbanIds])
+
   const prioritySessionIdsValue = useStore($prioritySessionIds)
 
   const togglePriorityFor = useCallback((sessionId: string) => togglePriority(sessionId), [])
+
+  const toggleKanbanFor = useCallback((sessionId: string) => toggleKanban(sessionId), [])
 
   const toggleSunsetFor = useCallback((sessionId: string) => toggleSunset(sessionId), [])
 
@@ -801,6 +809,13 @@ export function ChatSidebar({
     refreshAllProfilePriorityIds()
   }, [allProfileSessions, prioritySessionIdsValue])
 
+  // Keep the cross-profile kanban mirror ($allProfileKanbanIds) in sync with
+  // the cross-profile sessions mirror so KanbanSection shows kanban sessions
+  // from ALL profiles regardless of scope.
+  useEffect(() => {
+    refreshAllProfileKanbanIds()
+  }, [allProfileSessions, kanbanIdSet])
+
   // Consolidated 1s tick: prunes expired completions AND bumps shared $completedTick
   // atom for per-row countdown re-renders (S07 clock consolidation).
   // Sticky mode (TTL = 0): skip auto-prune entirely; rows leave only on user gesture.
@@ -1060,7 +1075,8 @@ export function ChatSidebar({
   // parallel grouped view, not a filter on this one — nothing is hidden here.
   // BUT: working sessions go in their own "Working" section (above Pinned),
   // AND completed sessions go in "Completed" — so we must exclude both from Recents.
-  const displayAgentSessions = agentSessions.filter(s => !workingSessionIdSet.has(s.id) && !completedIdSet.has(s.id) && !priorityIdSet.has(s.id))
+  // AND kanban sessions go in their own "Kanban" section — exclude those too.
+  const displayAgentSessions = agentSessions.filter(s => !workingSessionIdSet.has(s.id) && !completedIdSet.has(s.id) && !priorityIdSet.has(s.id) && !kanbanIdSet.has(s.id))
 
   // Pagination is scope-aware. In "All profiles" mode it tracks the global
   // unified set. When scoped to one profile it must compare that profile's own
@@ -1351,6 +1367,7 @@ export function ChatSidebar({
                 onNewSessionInWorkspace={onNewSessionInWorkspace}
                 onResumeSession={onResumeSession}
                 onTogglePriority={togglePriorityFor}
+                onToggleKanban={toggleKanbanFor}
                 openProjectCreate={openProjectCreate}
                 overviewPreviews={overviewPreviews}
                 pinnedSessions={pinnedSessions}
