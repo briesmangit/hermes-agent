@@ -11,6 +11,7 @@ import { cn } from '@/lib/utils'
 import { AttentionSection } from './attention-section'
 import { CompletedSection } from './completed-section'
 import { SidebarLoadMoreRow } from './load-more-row'
+import { PrioritySection } from './priority-section'
 import {
   ProjectBackRow,
   ProjectMenu,
@@ -89,6 +90,9 @@ export interface FleetTierListProps {
   // Ids flagged `state.needsInput === true` by the gateway — feeds the
   // Attention tier's cross-profile filter.
   attentionSessionIds: string[]
+  allProfilePriorityIds: Set<string>
+  priorityIdSet: Set<string>
+  onTogglePriority: (sessionId: string) => void
   activeProjectId: string | null
   inProject: boolean
   dndSensors: ReturnType<typeof useSensors>
@@ -160,6 +164,9 @@ export function FleetTierList({
   sessions,
   allProfileSessions,
   attentionSessionIds,
+  allProfilePriorityIds,
+  priorityIdSet,
+  onTogglePriority,
   activeProjectId,
   inProject,
   dndSensors,
@@ -193,6 +200,19 @@ export function FleetTierList({
 }: FleetTierListProps) {
   return (
     <div className="fleet-tier-list">
+      <PrioritySection
+        activeSessionId={activeSidebarSessionId}
+        allProfilePriorityIds={allProfilePriorityIds}
+        allProfileSessions={allProfileSessions}
+        onArchiveSession={onArchiveSession}
+        onBranchSession={onBranchSession}
+        onDeleteSession={onDeleteSession}
+        onResumeSession={onResumeSession}
+        onTogglePin={pinSession}
+        onTogglePriority={onTogglePriority}
+        workingSessionIdSet={workingSessionIdSet}
+      />
+
       <AttentionSection
         activeSessionId={activeSidebarSessionId}
         allProfileSessions={allProfileSessions}
@@ -202,6 +222,7 @@ export function FleetTierList({
         onDeleteSession={onDeleteSession}
         onResumeSession={onResumeSession}
         onTogglePin={pinSession}
+        priorityIdSet={priorityIdSet}
         workingSessionIdSet={workingSessionIdSet}
       />
 
@@ -248,8 +269,10 @@ export function FleetTierList({
         onResumeSession={onResumeSession}
         onToggle={() => setSidebarPinsOpen(!pinsOpen)}
         onTogglePin={unpinSession}
+        onTogglePriority={onTogglePriority}
         open={pinsOpen}
         pinned
+        priorityIdSet={priorityIdSet}
         rootClassName="shrink-0 p-0 pb-1"
         sessions={pinnedSessions}
         sortable={pinnedSessions.length > 1}
@@ -389,9 +412,11 @@ export function FleetTierList({
         onResumeSession={onResumeSession}
         onToggle={() => setSidebarRecentsOpen(!agentsOpen)}
         onTogglePin={pinSession}
+        onTogglePriority={onTogglePriority}
         onToggleSunset={toggleSunsetFor}
         open={agentsOpen}
         pinned={false}
+        priorityIdSet={priorityIdSet}
         projectBackRow={
           inProject ? <ProjectBackRow label={s.projects.back} onClick={exitProjectScope} /> : undefined
         }

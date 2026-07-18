@@ -31,6 +31,7 @@ interface SidebarSessionRowProps extends React.ComponentProps<'div'> {
   isWorking: boolean
   /** Sunset-triaged: done but not archived, visually demoted. */
   isSunset?: boolean
+  isPriority?: boolean
   /** Sequential session number (when numbering is enabled, else null) */
   sessionNumber?: number | null
   onArchive: () => void
@@ -39,6 +40,7 @@ interface SidebarSessionRowProps extends React.ComponentProps<'div'> {
   onPin: () => void
   onResume: () => void
   onToggleSunset?: () => void
+  onPriority?: () => void
   reorderable?: boolean
   dragging?: boolean
   dragHandleProps?: React.HTMLAttributes<HTMLElement>
@@ -62,6 +64,7 @@ export function SidebarSessionRow({
     isSelected,
     isWorking,
     isSunset = false,
+    isPriority = false,
     sessionNumber,
     onArchive,
     onBranch,
@@ -69,6 +72,7 @@ export function SidebarSessionRow({
     onPin,
     onResume,
     onToggleSunset,
+    onPriority,
     reorderable = false,
     dragging = false,
     dragHandleProps,
@@ -106,7 +110,9 @@ export function SidebarSessionRow({
     const borderColor = profileColor(session.profile)
     const borderWidth = isWorking ? 4 : 3
 
-    const borderStyle: React.CSSProperties = borderColor
+    const borderStyle: React.CSSProperties = isPriority
+      ? { borderLeft: '3px solid hsl(38 92% 55%)' }
+      : borderColor
       ? { borderLeft: `${borderWidth}px solid ${borderColor}` }
       : isWorking
       ? { borderLeft: `${borderWidth}px solid hsl(var(--ui-border))` }
@@ -114,10 +120,12 @@ export function SidebarSessionRow({
 
     return (
       <SessionContextMenu
+        isPriority={isPriority}
         onArchive={onArchive}
         onBranch={onBranch}
         onDelete={onDelete}
         onPin={onPin}
+        onTogglePriority={onPriority}
         profile={session.profile}
         sessionId={session.id}
         title={title}
@@ -134,10 +142,12 @@ export function SidebarSessionRow({
                 </span>
               )}
               <SessionActionsMenu
+                isPriority={isPriority}
                 onArchive={onArchive}
                 onBranch={onBranch}
                 onDelete={onDelete}
                 onPin={onPin}
+                onTogglePriority={onPriority}
                 onToggleSunset={onToggleSunset}
                 pinned={isPinned}
                 profile={session.profile}
