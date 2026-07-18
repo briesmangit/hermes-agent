@@ -469,6 +469,20 @@
     margin-top: 0.25rem;
   }
 
+  /* t_ca7f3ddd: right-rail preview compresses gracefully. When the rail's own
+     width drops below 24rem (container query on the rail <aside>), hide the tab
+     label text so the strip collapses to icon-only rather than overflowing or
+     crushing the preview. */
+  @container (max-width: 24rem) {
+    .group\/rail-tabs [role='tab'] span {
+      display: none;
+    }
+    .group\/rail-tabs [role='tab'] {
+      padding-left: 0.5rem;
+      padding-right: 0.5rem;
+    }
+  }
+
   * {
     box-sizing: border-box;
     border-color: var(--dt-border);

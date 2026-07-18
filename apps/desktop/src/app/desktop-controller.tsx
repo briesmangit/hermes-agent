@@ -1241,7 +1241,11 @@ export function DesktopController() {
       id="terminal-sidebar"
       key="terminal-sidebar"
       maxHeight="80vh"
-      maxWidth="80vw"
+      // SLICE-02 / t_f878767c: cap the terminal column at 52rem (832px) so on
+      // 21:9 ultrawide screens it never stretches absurdly wide. The Pane
+      // machinery persists the user's dragged width via pane-state
+      // (hermes.desktop.paneStates.v1), so no extra storage key is needed.
+      maxWidth="52rem"
       minHeight="8rem"
       minWidth="22vw"
       resizable
