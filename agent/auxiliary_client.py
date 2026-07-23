@@ -811,6 +811,167 @@ def _pool_runtime_base_url(entry: Any, fallback: str = "") -> str:
     return str(url or "").strip().rstrip("/")
 
 
+# ── Capacity plane scorer wiring ─────────────────────────────────────────
+# Every LLM call (sync and async) feeds observed latency, error status, and
+# token counts back to the credential pool's capacity scorer.  The scorer
+# uses an EWMA over these observations to rank credentials by observed
+# health, feeding the dashboard's capacity plane board.
+#
+# The wiring is a two-line pattern at every completion site:
+#   1. _t_start = time.time() before the call
+#   2. _record_pool_response(pool_provider, client, response_or_err,
+#                             _t_start, task) after
+# Failure of the scorer is best-effort and silent — it must NEVER break an
+# LLM call or leak an exception into the hot path.
+
+def _extract_response_tokens(response: Any) -> Tuple[int, int]:
+    """Best-effort extraction of (prompt_tokens, completion_tokens) from a response."""
+    try:
+        usage = getattr(response, "usage", None)
+        if usage is None:
+            return 0, 0
+        # OpenAI-style: prompt_tokens / completion_tokens / total_tokens
+        pt = getattr(usage, "prompt_tokens", None)
+        ct = getattr(usage, "completion_tokens", None)
+        if pt is None or ct is None:
+            # Some adapters (Codex Responses) use input_tokens / output_tokens
+            pt = getattr(usage, "input_tokens", None) or pt
+            ct = getattr(usage, "output_tokens", None) or ct
+        _pt, _ct = pt or 0, ct or 0
+        if isinstance(usage, dict):
+            _pt = _pt or usage.get("prompt_tokens") or usage.get("input_tokens") or 0
+            _ct = _ct or usage.get("completion_tokens") or usage.get("output_tokens") or 0
+        return int(_pt), int(_ct)
+    except Exception:
+        return 0, 0
+
+
+def _resolve_pool_for_capacity(provider: str, client: Any) -> Optional[Any]:
+    """Load the credential pool for a provider, best-effort.
+
+    Returns the pool instance or None.  We do NOT use the cached client's
+    pool — we re-load from disk so we see the same entry identity the
+    selection layer used (and so record_response writes to the right entry).
+    """
+    try:
+        normalized = _normalize_aux_provider(provider)
+        if not normalized or normalized in {"auto", "custom", ""}:
+            # For auto-routed calls, try to infer the actual provider from
+            # the client's base_url so we score the right pool.
+            _base = str(getattr(client, "base_url", "") or "")
+            normalized = _infer_provider_from_base_url(_base) or normalized
+        if not normalized or normalized in {"auto", "custom", ""}:
+            return None
+        return load_pool(normalized)
+    except Exception:
+        return None
+
+
+def _infer_provider_from_base_url(base_url: str) -> Optional[str]:
+    """Best-effort provider name from a base_url for scorer routing."""
+    if not base_url:
+        return None
+    url_lower = base_url.lower()
+    if "integrate.api.nvidia.com" in url_lower:
+        return "nvidia"
+    if "openrouter.ai" in url_lower:
+        return "openrouter"
+    if "generativelanguage.googleapis.com" in url_lower:
+        return "gemini"
+    if "api.groq.com" in url_lower:
+        return "groq"
+    if "ollama.com" in url_lower:
+        return "ollama-cloud"
+    if "api.kilo.ai" in url_lower:
+        return "kilocode"
+    if "inference-api.nousresearch.com" in url_lower:
+        return "nous"
+    return None
+
+
+def _find_pool_entry_by_api_key(pool: Any, api_key: str) -> Optional[Any]:
+    """Find the pool entry whose runtime_api_key matches, best-effort."""
+    if not pool or not api_key:
+        return None
+    try:
+        for entry in pool.entries():
+            if _pool_runtime_api_key(entry) == api_key:
+                return entry
+        # Fallback: use current() if it's the only/active entry
+        current = pool.current()
+        if current is not None:
+            return current
+    except Exception:
+        return None
+    return None
+
+
+def _record_pool_response(
+    pool_provider: Optional[str],
+    client: Any,
+    response_or_exc: Any,
+    start_time: float,
+    *,
+    task: Optional[str] = None,
+    is_success: bool = True,
+) -> None:
+    """Feed a single observation to the capacity plane scorer.
+
+    Called after every LLM completion (success or failure) in call_llm /
+    async_call_llm.  Resolves the credential pool, finds the entry that
+    served this call (by matching the client's api_key), and calls
+    pool.record_response() with latency, HTTP status, and token counts.
+
+    Best-effort: swallows all errors so it can never break the call path.
+    """
+    if not pool_provider:
+        return
+    try:
+        pool = _resolve_pool_for_capacity(pool_provider, client)
+        if pool is None or not pool.has_credentials():
+            return
+        _client_api_key = str(getattr(client, "api_key", "") or "")
+        entry = _find_pool_entry_by_api_key(pool, _client_api_key)
+        if entry is None:
+            return
+
+        latency_ms = max(0.0, (time.time() - start_time) * 1000.0)
+        status_code = 200
+        tokens_in = 0
+        tokens_out = 0
+
+        if is_success:
+            tokens_in, tokens_out = _extract_response_tokens(response_or_exc)
+        else:
+            # Extract HTTP status code from exception
+            status_code = getattr(response_or_exc, "status_code", None) or 0
+            # If we can't find a status code and the exception type suggests
+            # a rate limit / auth / payment error, attribute a sensible code.
+            if status_code == 0:
+                exc_str = str(response_or_exc)
+                if _is_rate_limit_error(response_or_exc):
+                    status_code = 429
+                elif _is_payment_error(response_or_exc):
+                    status_code = 402
+                elif _is_auth_error(response_or_exc):
+                    status_code = 401
+                elif _is_connection_error(response_or_exc):
+                    status_code = 503
+                else:
+                    status_code = 500
+
+        pool.record_response(
+            entry,
+            status_code=status_code,
+            latency_ms=latency_ms,
+            tokens_in=tokens_in,
+            tokens_out=tokens_out,
+        )
+    except Exception as exc:
+        logger.debug("capacity plane: record_pool_response failed for %s: %s",
+                     pool_provider, exc)
+
+
 # Hostnames (lowercase, exact) that the auxiliary Anthropic path is allowed to
 # be pointed at via config.yaml model.base_url. Anything else falls back to the
 # Anthropic default — operators routing main-session traffic through a
@@ -6553,6 +6714,7 @@ def call_llm(
 
     # Handle unsupported temperature, max_tokens vs max_completion_tokens retry,
     # then payment fallback.
+    _pool_start_time = time.time()  # for capacity plane scorer
     try:
         # Retry on the same provider for a transient transport blip
         # (connection reset / streaming-close / incomplete chunked read / 5xx /
@@ -6571,11 +6733,23 @@ def call_llm(
         # ``first_err`` and the existing fallback handling unchanged. Unified home
         # for the transient retry every auxiliary task shares. (PR #16587)
         try:
-            return _validate_llm_response(
+            _resp = _validate_llm_response(
                 client.chat.completions.create(**kwargs), task)
+            # Capacity plane: record the successful observation
+            _record_pool_response(
+                resolved_provider, client, _resp, _pool_start_time,
+                task=task, is_success=True,
+            )
+            return _resp
         except Exception as transient_err:
             if not _is_transient_transport_error(transient_err):
                 raise
+            # Capacity plane: record the failed observation (transient retry
+            # will attempt the same provider, so the scorer sees the blip)
+            _record_pool_response(
+                resolved_provider, client, transient_err, _pool_start_time,
+                task=task, is_success=False,
+            )
             # Compression is on the critical preflight path: a user cannot
             # continue or resume an oversized session until it compacts. A
             # same-provider retry on a timeout means another full ``timeout``-
@@ -6612,6 +6786,12 @@ def call_llm(
             # Retries exhausted — fall through to first_err fallback handling.
             raise _last_transient
     except Exception as first_err:
+        # Capacity plane: record the failed observation (non-transient error
+        # that will trigger the fallback chain below).
+        _record_pool_response(
+            resolved_provider, client, first_err, _pool_start_time,
+            task=task, is_success=False,
+        )
         if "temperature" in kwargs and _is_unsupported_temperature_error(first_err):
             retry_kwargs = dict(kwargs)
             retry_kwargs.pop("temperature", None)
@@ -7139,16 +7319,26 @@ async def async_call_llm(
     if _is_anthropic_compat_endpoint(resolved_provider, _client_base):
         kwargs["messages"] = _convert_openai_images_to_anthropic(kwargs["messages"])
 
+    _pool_start_time = time.time()  # for capacity plane scorer
     try:
         # Retry ONCE on the same provider for a transient transport blip
         # before the except-chain escalates to fallback — see call_llm()
         # for the rationale. (PR #16587)
         try:
-            return _validate_llm_response(
+            _resp = _validate_llm_response(
                 await client.chat.completions.create(**kwargs), task)
+            _record_pool_response(
+                resolved_provider, client, _resp, _pool_start_time,
+                task=task, is_success=True,
+            )
+            return _resp
         except Exception as transient_err:
             if not _is_transient_transport_error(transient_err):
                 raise
+            _record_pool_response(
+                resolved_provider, client, transient_err, _pool_start_time,
+                task=task, is_success=False,
+            )
             # See call_llm(): compression is on the critical preflight path,
             # so skip the same-provider retry on a full-budget timeout and
             # fall straight through to fallback (issue #54465).
@@ -7167,6 +7357,10 @@ async def async_call_llm(
             return _validate_llm_response(
                 await client.chat.completions.create(**kwargs), task)
     except Exception as first_err:
+        _record_pool_response(
+            resolved_provider, client, first_err, _pool_start_time,
+            task=task, is_success=False,
+        )
         if "temperature" in kwargs and _is_unsupported_temperature_error(first_err):
             retry_kwargs = dict(kwargs)
             retry_kwargs.pop("temperature", None)
